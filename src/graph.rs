@@ -1,37 +1,35 @@
+use std::collections::HashMap;
+
 #[derive(Debug)]
-pub struct Graph<V: Copy> {
-  pub vertexes: Vec<Vertex<V>>,
-  adjacency_matrix: Vec<Vec<u64>>
+pub struct Graph<V: Copy, E: Copy> {
+  pub vertexes: HashMap<usize, Vertex<V>>,
+  pub edges: HashMap<(usize, usize), E>,
+  adjacency_matrix: Vec<Vec<bool>>
 }
 
 #[derive(Debug)]
 pub struct Vertex<V: Copy> {
-    pub id: u64,
-    pub value: V
+    pub value: V,
+    pub neighbors: Vec<usize>
 }
 
-pub struct Edge {
-    pub source: u64,
-    pub destination: u64,
-    pub weight: u64
-}
-
-impl<V: Copy> Graph<V> {
-    pub fn new(vertex_list: &Vec<(u64, V)>, adjacency_list: &Vec<Edge>) -> Graph<V> {
-        let vertexes: Vec<Vertex<V>> = vertex_list.iter().map(|v| {
-            Vertex::<V>{ id: v.0, value: v.1 }
-        }).collect();
-
+impl<V: Copy, E: Copy> Graph<V, E> {
+    pub fn new(vertex_list: &Vec<(usize, V)>, edge_list: &Vec<(usize, usize, E)>) -> Graph<V, E> {
+        let mut vertexes: HashMap<usize, Vertex<V>> = HashMap::new();
+        for v in vertex_list {
+            vertexes.insert(v.0, Vertex {value: v.1, neighbors: Vec::new()});
+        }
         let n_vertexes: usize = vertexes.len();
-        let mut adjacency_matrix: Vec<Vec<u64>> = Vec::with_capacity(n_vertexes);
-        for _ in 0..n_vertexes {
-            adjacency_matrix.push(vec![0; n_vertexes]);
-        }
-        for edge in adjacency_list {
-            adjacency_matrix[edge.source as usize][edge.destination as usize] = edge.weight;
+
+        let mut adjacency_matrix: Vec<Vec<bool>> = vec![vec![false; n_vertexes]; n_vertexes];
+        let mut edges: HashMap<(usize, usize), E> = HashMap::new();
+        for edge in edge_list {
+            adjacency_matrix[edge.0][edge.1] = true;
+            vertexes.get_mut(&edge.0).unwrap().neighbors.push(edge.1);
+            edges.insert((edge.0, edge.1), edge.2);
         }
 
-        Graph { vertexes: vertexes, adjacency_matrix: adjacency_matrix }
+        Graph { vertexes: vertexes, edges: edges, adjacency_matrix: adjacency_matrix }
     }
 
     pub fn find_path(&self) -> Option<Vec<Vertex<V>>> {
