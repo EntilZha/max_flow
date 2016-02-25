@@ -31,8 +31,32 @@ impl<V: Copy, E: Copy> Graph<V, E> {
 
         Graph { vertexes: vertexes, edges: edges, adjacency_matrix: adjacency_matrix }
     }
+    pub fn size(&self) -> (usize, usize) {
+        (self.vertexes.len(), self.edges.len())
+    }
+}
 
-    pub fn find_path(&self) -> Option<Vec<Vertex<V>>> {
-        None
+#[cfg(test)]
+mod tests {
+    use graph::Graph;
+
+    #[test]
+    fn test_new_graph() {
+        let vertex_list = vec![(0, 0), (1, 0), (2, 0), (3, 0), (4, 0)];
+        let edge_list = vec![
+            (0, 1, 5),
+            (0, 2, 2),
+            (2, 3, 3),
+            (4, 3, 1)
+        ];
+        let g = Graph::new(&vertex_list, &edge_list);
+        assert_eq!(g.size(), (5, 4));
+        for k in 0..5 {
+            assert!(g.vertexes.contains_key(&k));
+        }
+        assert_eq!(g.edges[&(0, 1)], 5);
+        assert_eq!(g.edges[&(0, 2)], 2);
+        assert_eq!(g.edges[&(2, 3)], 3);
+        assert_eq!(g.edges[&(4, 3)], 1);
     }
 }
