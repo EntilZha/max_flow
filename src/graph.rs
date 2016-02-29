@@ -34,6 +34,12 @@ impl<V: Copy, E: Copy> Graph<V, E> {
     pub fn size(&self) -> (usize, usize) {
         (self.vertexes.len(), self.edges.len())
     }
+    pub fn number_of_vertexes(&self) -> usize {
+        self.vertexes.len()
+    }
+    pub fn number_of_edges(&self) -> usize {
+        self.edges.len()
+    }
 }
 
 #[cfg(test)]
