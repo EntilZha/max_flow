@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::iter::Iterator;
 
 #[derive(Debug)]
 pub struct Graph<V: Copy, E: Copy> {
@@ -11,6 +12,10 @@ pub struct Graph<V: Copy, E: Copy> {
 pub struct Vertex<V: Copy> {
     pub value: V,
     pub neighbors: Vec<usize>
+}
+
+struct BfsIterator {
+    current_vertex: usize,
 }
 
 impl<V: Copy, E: Copy> Graph<V, E> {
