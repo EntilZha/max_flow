@@ -5,21 +5,24 @@ use std::usize;
 
 pub type VertexId = usize;
 
+pub trait Property {}
+impl<T> Property for T where T: Copy + PartialOrd + PartialEq {}
+
 /// Represent a Graph structure
 #[derive(Debug)]
-pub struct Graph<V: Copy, E: Copy> {
+pub struct Graph<V: Property, E: Property> {
     pub vertexes: HashMap<VertexId, Vertex<V>>,
     pub edges: HashMap<(VertexId, VertexId), E>,
     adjacency_matrix: Vec<Vec<bool>>,
 }
 
 #[derive(Debug)]
-pub struct Vertex<V: Copy> {
+pub struct Vertex<V: Property> {
     pub value: V,
     pub neighbors: Vec<VertexId>,
 }
 
-pub struct BfsIterator<'a, V: 'a + Copy, E: 'a + Copy, F> {
+pub struct BfsIterator<'a, V: 'a + Property, E: 'a + Property, F> {
     queue: VecDeque<VertexId>,
     graph: &'a Graph<V, E>,
     distances: Vec<u64>,
@@ -27,7 +30,7 @@ pub struct BfsIterator<'a, V: 'a + Copy, E: 'a + Copy, F> {
     predicate: F
 }
 
-impl<'a, V: Copy, E: Copy, F> BfsIterator<'a, V, E, F> {
+impl<'a, V: Property, E: Property, F> BfsIterator<'a, V, E, F> {
     fn new(graph: &'a Graph<V, E>, source: VertexId, predicate: F) -> BfsIterator<'a, V, E, F> {
         let mut queue = VecDeque::new();
         queue.push_back(source);
@@ -46,7 +49,8 @@ impl<'a, V: Copy, E: Copy, F> BfsIterator<'a, V, E, F> {
 
 /// Iterator for a breadth first search over a graph
 /// Returns in order a tuple of (vertex, distance, parent)
-impl<'a, V: Copy, E: Copy, F> Iterator for BfsIterator<'a, V, E, F> where F: Fn(V, E, V) -> bool {
+impl<'a, V: Property, E: Property, F> Iterator for BfsIterator<'a, V, E, F>
+    where F: Fn(V, E, V) -> bool {
     type Item = (VertexId, u64, VertexId);
     fn next(&mut self) -> Option<(VertexId, u64, VertexId)> {
         let g = self.graph;
@@ -68,7 +72,7 @@ impl<'a, V: Copy, E: Copy, F> Iterator for BfsIterator<'a, V, E, F> where F: Fn(
     }
 }
 
-impl<'a, V: Copy, E: Copy> Graph<V, E> {
+impl<'a, V: Property, E: Property> Graph<V, E> {
     pub fn new(vertex_list: &Vec<(VertexId, V)>, edge_list: &Vec<(VertexId, VertexId, E)>) -> Graph<V, E> {
         let mut vertexes: HashMap<VertexId, Vertex<V>> = HashMap::new();
         for v in vertex_list {
@@ -113,13 +117,18 @@ impl<'a, V: Copy, E: Copy> Graph<V, E> {
     where F: Fn(V, E, V) -> bool {
         BfsIterator::new(self, source, predicate)
     }
-    pub fn augmenting_path(&self, source: VertexId) -> Option<Vec<VertexId>> {
-        None
-    }
 }
 
-fn bfs_true_predicate<'a, V: Copy, E: Copy>(_: V, _: E, _: V) -> bool {
+pub trait FlowGraph<V> {}
+
+impl<'a, V: Property> FlowGraph<V> for Graph<V, i64> {}
+
+fn bfs_true_predicate<'a, V: Property, E: Property>(_: V, _: E, _: V) -> bool {
     true
+}
+
+fn flow_predicate<'a, V: Property>(_: V, edge: i64, _: V) {
+    edge > 0;
 }
 
 #[cfg(test)]
