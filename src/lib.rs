@@ -5,8 +5,8 @@ use std::usize;
 
 pub type VertexId = usize;
 
-pub trait Property {}
-impl<T> Property for T where T: Copy + PartialOrd + PartialEq {}
+pub trait Property : Copy + Ord + Eq {}
+impl<T> Property for T where T: Copy + Ord + Eq {}
 
 /// Represent a Graph structure
 #[derive(Debug)]
