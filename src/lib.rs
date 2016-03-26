@@ -30,7 +30,7 @@ pub struct BfsIterator<'a, V: 'a + Property, E: 'a + Property, F> {
     predicate: F
 }
 
-impl<'a, V: Property, E: Property, F> BfsIterator<'a, V, E, F> {
+pub impl<'a, V: Property, E: Property, F> BfsIterator<'a, V, E, F> {
     fn new(graph: &'a Graph<V, E>, source: VertexId, predicate: F) -> BfsIterator<'a, V, E, F> {
         let mut queue = VecDeque::new();
         queue.push_back(source);
@@ -49,10 +49,10 @@ impl<'a, V: Property, E: Property, F> BfsIterator<'a, V, E, F> {
 
 /// Iterator for a breadth first search over a graph
 /// Returns in order a tuple of (vertex, distance, parent)
-impl<'a, V: Property, E: Property, F> Iterator for BfsIterator<'a, V, E, F>
+pub impl<'a, V: Property, E: Property, F> Iterator for BfsIterator<'a, V, E, F>
     where F: Fn(V, E, V) -> bool {
     type Item = (VertexId, u64, VertexId);
-    fn next(&mut self) -> Option<(VertexId, u64, VertexId)> {
+    pub fn next(&mut self) -> Option<(VertexId, u64, VertexId)> {
         let g = self.graph;
         match self.queue.pop_front() {
             Some(vertex) => {
@@ -119,9 +119,15 @@ impl<'a, V: Property, E: Property> Graph<V, E> {
     }
 }
 
-pub trait FlowGraph<V> {}
+pub trait FlowGraph<V> {
+    fn augmenting_path(&self, source: VertexId) -> Vec<VertexId>;
+}
 
-impl<'a, V: Property> FlowGraph<V> for Graph<V, i64> {}
+impl<'a, V: Property> FlowGraph<V> for Graph<V, i64> {
+    pub fn augmenting_path(&self, source: VertexId) -> Vec<VertexId> {
+        BfsIterator::new(self, source, flow_predicate).collect()
+    }
+}
 
 fn bfs_true_predicate<'a, V: Property, E: Property>(_: V, _: E, _: V) -> bool {
     true
