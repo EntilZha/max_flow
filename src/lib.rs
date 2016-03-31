@@ -5,8 +5,8 @@ use std::usize;
 
 pub type VertexId = usize;
 
-pub trait Property : Copy + Ord + Eq {}
-impl<T> Property for T where T: Copy + Ord + Eq {}
+pub trait Property : Copy {}
+impl<T> Property for T where T: Copy {}
 
 /// Represent a Graph structure
 #[derive(Debug)]
@@ -20,6 +20,12 @@ pub struct Graph<V: Property, E: Property> {
 pub struct Vertex<V: Property> {
     pub value: V,
     pub neighbors: Vec<VertexId>,
+}
+
+#[derive(Debug, Copy, Clone)]
+pub struct FlowEdge {
+    pub capacity: i64,
+    pub flow: i64
 }
 
 pub struct BfsIterator<'a, V: 'a + Property, E: 'a + Property, F> {
@@ -119,13 +125,38 @@ impl<'a, V: Property, E: Property> Graph<V, E> {
     }
 }
 
-pub trait FlowGraph<V> {
-    fn augmenting_path(&self, source: VertexId) -> Vec<(VertexId, u64, VertexId)>;
+pub fn path_from_visited(source: VertexId,
+                         sink: VertexId,
+                         visited: &Vec<(VertexId, u64, VertexId)>) -> Vec<VertexId> {
+    let mut node_parent_map: HashMap<VertexId, VertexId> = HashMap::new();
+    for node in visited {
+        node_parent_map.insert(node.0, node.2);
+    }
+    let mut path: Vec<VertexId> = Vec::new();
+    let mut node = sink;
+    loop {
+        path.insert(0, node);
+        if node == source {
+            break;
+        }
+        node = node_parent_map[&node];
+    }
+    path
 }
 
-impl<'a, V: Property> FlowGraph<V> for Graph<V, i64> {
-    fn augmenting_path(&self, source: VertexId) -> Vec<(VertexId, u64, VertexId)> {
-        BfsIterator::new(self, source, flow_predicate).collect()
+pub trait FlowGraph<V> {
+    fn augmenting_path(&self, source: VertexId, sink: VertexId) -> Option<Vec<VertexId>>;
+}
+
+impl<'a, V: Property> FlowGraph<V> for Graph<V, FlowEdge> {
+    fn augmenting_path(&self, source: VertexId, sink: VertexId) -> Option<Vec<VertexId>> {
+        let bfs_edges: Vec<(VertexId, u64, VertexId)> = BfsIterator::new(self, source, flow_predicate).collect();
+        match bfs_edges.iter().any(|element| element.0 == sink) {
+            true => {
+                Some(path_from_visited(source, sink, &bfs_edges))
+            },
+            _ => None
+        }
     }
 }
 
@@ -133,14 +164,17 @@ fn bfs_true_predicate<'a, V: Property, E: Property>(_: V, _: E, _: V) -> bool {
     true
 }
 
-fn flow_predicate<'a, V: Property>(_: V, edge: i64, _: V) -> bool {
-    edge > 0
+fn flow_predicate<'a, V: Property>(_: V, edge: FlowEdge, _: V) -> bool {
+    edge.capacity - edge.flow > 0
 }
 
 #[cfg(test)]
 mod tests {
     use Graph;
+    use FlowGraph;
     use VertexId;
+    use FlowEdge;
+    use path_from_visited;
     use std::collections::HashSet;
     use std::usize;
 
@@ -175,5 +209,31 @@ mod tests {
         expect.insert((4, 2, 3));
         expect.insert((5, 3, 4));
         assert_eq!(result_set, expect);
+    }
+
+    #[test]
+    fn test_augmenting_path() {
+        let vertex_list = vec![(0, 0), (1, 0), (2, 0), (3, 0), (4, 0), (5, 0), (6, 0)];
+        let edge_list = vec![
+            (0, 1, FlowEdge{flow: 0, capacity: 1}),
+            (0, 2, FlowEdge{flow: 0, capacity: 1}),
+            (1, 3, FlowEdge{flow: 0, capacity: 1}),
+            (1, 5, FlowEdge{flow: 0, capacity: 1}),
+            (2, 5, FlowEdge{flow: 0, capacity: 1}),
+            (2, 6, FlowEdge{flow: 0, capacity: 1}),
+            (3, 4, FlowEdge{flow: 0, capacity: 1})
+        ];
+        let g = Graph::new(&vertex_list, &edge_list);
+        let result = g.augmenting_path(0, 4);
+        assert_eq!(result.unwrap(), [0, 1, 3, 4]);
+    }
+
+    #[test]
+    fn test_path_from_visited() {
+        let source = 0;
+        let sink = 4;
+        let visited = vec![(0, 0, usize::MAX), (1, 1, 0), (2, 1, 0), (5, 2, 1), (3, 2, 1), (4, 3, 3), (6, 2, 2)];
+        let path = path_from_visited(source, sink, &visited);
+        assert_eq!(path, [0, 1, 3, 4]);
     }
 }
