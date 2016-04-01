@@ -3,12 +3,17 @@ use std::iter::Iterator;
 use std::u64;
 use std::usize;
 
+/// Alias type to usize for VertexId attributes.
 pub type VertexId = usize;
 
-pub trait Property : Copy {}
+#[derive(Debug)]
+pub struct Triplet<T: Property>(pub VertexId, pub T, pub VertexId);
+
+/// Valid type to be used for a vertex or edge property.
+pub trait Property: Copy {}
 impl<T> Property for T where T: Copy {}
 
-/// Represent a Graph structure
+/// Represent a Graph structure.
 #[derive(Debug)]
 pub struct Graph<V: Property, E: Property> {
     pub vertexes: HashMap<VertexId, Vertex<V>>,
@@ -16,18 +21,21 @@ pub struct Graph<V: Property, E: Property> {
     adjacency_matrix: Vec<Vec<bool>>,
 }
 
+/// Represents a Vertex which has a value property and a list of neighbors.
 #[derive(Debug)]
 pub struct Vertex<V: Property> {
     pub value: V,
     pub neighbors: Vec<VertexId>,
 }
 
+/// Edge property that provides fields for a flow graph.
 #[derive(Debug, Copy, Clone)]
 pub struct FlowEdge {
     pub capacity: i64,
     pub flow: i64
 }
 
+/// Representation of breadth first search iterator.
 pub struct BfsIterator<'a, V: 'a + Property, E: 'a + Property, F> {
     queue: VecDeque<VertexId>,
     graph: &'a Graph<V, E>,
@@ -117,7 +125,7 @@ impl<'a, V: Property, E: Property> Graph<V, E> {
         &self.vertexes[vertex].neighbors
     }
     pub fn bfs_iter(&self, source: VertexId) -> BfsIterator<V, E, fn(V, E, V) -> bool> {
-        BfsIterator::new(self, source, bfs_true_predicate)
+        BfsIterator::new(self, source, true_predicate)
     }
     pub fn bfs_iter_predicate<F>(&'a self, source: VertexId, predicate: F) -> BfsIterator<V, E, F>
     where F: Fn(V, E, V) -> bool {
@@ -125,6 +133,9 @@ impl<'a, V: Property, E: Property> Graph<V, E> {
     }
 }
 
+/// Creates a path from a list of nodes from a tree search (BFS or DFS). The visited nodes are expected to be in the
+/// format (vertex, distance_from_source, parent). The path is computed using the parent back pointers. It is assumed
+/// that there does exist a path, it is a programming error which will cause a panic if that is not true
 pub fn path_from_visited(source: VertexId,
                          sink: VertexId,
                          visited: &Vec<(VertexId, u64, VertexId)>) -> Vec<VertexId> {
@@ -144,11 +155,14 @@ pub fn path_from_visited(source: VertexId,
     path
 }
 
+/// Special type of graph which has edges which can have flow and capacity.
 pub trait FlowGraph<V> {
     fn augmenting_path(&self, source: VertexId, sink: VertexId) -> Option<Vec<VertexId>>;
+    fn max_flow(&mut self, source: VertexId, sink: VertexId) -> (i64, Vec<Vec<Triplet<FlowEdge>>>);
 }
 
 impl<'a, V: Property> FlowGraph<V> for Graph<V, FlowEdge> {
+    /// Returns a path from source to sink if one exists that has non-zero flow.
     fn augmenting_path(&self, source: VertexId, sink: VertexId) -> Option<Vec<VertexId>> {
         let bfs_edges: Vec<(VertexId, u64, VertexId)> = BfsIterator::new(self, source, flow_predicate).collect();
         match bfs_edges.iter().any(|element| element.0 == sink) {
@@ -158,12 +172,48 @@ impl<'a, V: Property> FlowGraph<V> for Graph<V, FlowEdge> {
             _ => None
         }
     }
+
+    /// Computes a vector of flow paths. Each path includes edges sequentially with the flow across that edge.
+    fn max_flow(&mut self, source: VertexId, sink: VertexId) -> (i64, Vec<Vec<Triplet<FlowEdge>>>) {
+        let mut flow_paths: Vec<Vec<Triplet<FlowEdge>>> = Vec::new();
+        let mut total_flow = 0;
+        loop {
+            let path_option = self.augmenting_path(source, sink);
+            match path_option {
+                Some(path) => {
+                    println!("Path: {:?}", path);
+                    let mut edges: Vec<Triplet<FlowEdge>> = Vec::new();
+                    for i in 0..path.len() {
+                        if i + 1 != path.len() {
+                            let v_0 = path[i];
+                            let v_1 = path[i + 1];
+                            edges.push(Triplet(v_0, self.edges[&(v_0, v_1)], v_1));
+                        }
+                    }
+                    let flow: i64 = edges.iter().map(|triplet| triplet.1.capacity - triplet.1.flow).min().unwrap();
+                    println!("Path flow: {}", flow);
+                    total_flow += flow;
+                    for edge in &edges {
+                        let g_edge = self.edges.get_mut(&(edge.0, edge.2)).unwrap();
+                        g_edge.flow = g_edge.flow + flow;
+                    }
+                    println!("{:?}", self.edges);
+                    flow_paths.push(edges);
+                },
+                None => {
+                    break;
+                }
+            }
+        }
+        (total_flow, flow_paths)
+    }
 }
 
-fn bfs_true_predicate<'a, V: Property, E: Property>(_: V, _: E, _: V) -> bool {
+fn true_predicate<'a, V: Property, E: Property>(_: V, _: E, _: V) -> bool {
     true
 }
 
+/// Ensure that there is available flow across the edge.
 fn flow_predicate<'a, V: Property>(_: V, edge: FlowEdge, _: V) -> bool {
     edge.capacity - edge.flow > 0
 }
@@ -223,9 +273,15 @@ mod tests {
             (2, 6, FlowEdge{flow: 0, capacity: 1}),
             (3, 4, FlowEdge{flow: 0, capacity: 1})
         ];
-        let g = Graph::new(&vertex_list, &edge_list);
-        let result = g.augmenting_path(0, 4);
-        assert_eq!(result.unwrap(), [0, 1, 3, 4]);
+        let mut g = Graph::new(&vertex_list, &edge_list);
+
+        assert_eq!(g.augmenting_path(0, 4).unwrap(), [0, 1, 3, 4]);
+
+        {
+            let edge = g.edges.get_mut(&(1, 3)).unwrap();
+            edge.flow = 1;
+        }
+        assert_eq!(g.augmenting_path(0, 4), None);
     }
 
     #[test]
@@ -235,5 +291,23 @@ mod tests {
         let visited = vec![(0, 0, usize::MAX), (1, 1, 0), (2, 1, 0), (5, 2, 1), (3, 2, 1), (4, 3, 3), (6, 2, 2)];
         let path = path_from_visited(source, sink, &visited);
         assert_eq!(path, [0, 1, 3, 4]);
+    }
+
+    #[test]
+    fn test_max_flow() {
+        let vertex_list = vec![(0, 0), (1, 0), (2, 0), (3, 0), (4, 0), (5, 0), (6, 0)];
+        let edge_list = vec![
+            (0, 1, FlowEdge{flow: 0, capacity: 1}),
+            (0, 2, FlowEdge{flow: 0, capacity: 1}),
+            (1, 3, FlowEdge{flow: 0, capacity: 1}),
+            (1, 5, FlowEdge{flow: 0, capacity: 1}),
+            (2, 5, FlowEdge{flow: 0, capacity: 1}),
+            (2, 6, FlowEdge{flow: 0, capacity: 1}),
+            (3, 4, FlowEdge{flow: 0, capacity: 1})
+        ];
+        let mut g = Graph::new(&vertex_list, &edge_list);
+        let flow_result = g.max_flow(0, 4);
+        let total_flow = flow_result.0;
+        let flow_paths = flow_result.1;
     }
 }
