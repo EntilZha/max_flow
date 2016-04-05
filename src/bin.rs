@@ -7,13 +7,14 @@ use graph::FlowGraph;
 fn main() {
     let vertex_list = vec![(0, 0), (1, 0), (2, 0), (3, 0), (4, 0), (5, 0), (6, 0)];
     let edge_list = vec![
-        (0, 1, FlowEdge{flow: 0, capacity: 1}),
+        (0, 1, FlowEdge{flow: 0, capacity: 3}),
         (0, 2, FlowEdge{flow: 0, capacity: 1}),
-        (1, 3, FlowEdge{flow: 0, capacity: 1}),
+        (1, 3, FlowEdge{flow: 0, capacity: 2}),
         (1, 5, FlowEdge{flow: 0, capacity: 1}),
         (2, 5, FlowEdge{flow: 0, capacity: 1}),
         (2, 6, FlowEdge{flow: 0, capacity: 1}),
-        (3, 4, FlowEdge{flow: 0, capacity: 1}),
+        (3, 4, FlowEdge{flow: 0, capacity: 2}),
+        (5, 6, FlowEdge{flow: 0, capacity: 1}),
         (6, 4, FlowEdge{flow: 0, capacity: 2})
     ];
     let mut g = Graph::new(&vertex_list, &edge_list);

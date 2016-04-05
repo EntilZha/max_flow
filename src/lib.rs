@@ -9,6 +9,9 @@ pub type VertexId = usize;
 #[derive(Debug)]
 pub struct Triplet<T: Property>(pub VertexId, pub T, pub VertexId);
 
+#[derive(Debug)]
+pub struct Edge(pub VertexId, pub VertexId);
+
 /// Valid type to be used for a vertex or edge property.
 pub trait Property: Copy {}
 impl<T> Property for T where T: Copy {}
@@ -158,7 +161,7 @@ pub fn path_from_visited(source: VertexId,
 /// Special type of graph which has edges which can have flow and capacity.
 pub trait FlowGraph<V> {
     fn augmenting_path(&self, source: VertexId, sink: VertexId) -> Option<Vec<VertexId>>;
-    fn max_flow(&mut self, source: VertexId, sink: VertexId) -> (i64, Vec<Vec<Triplet<FlowEdge>>>);
+    fn max_flow(&mut self, source: VertexId, sink: VertexId) -> (i64, Vec<Vec<Edge>>);
 }
 
 impl<'a, V: Property> FlowGraph<V> for Graph<V, FlowEdge> {
@@ -174,8 +177,8 @@ impl<'a, V: Property> FlowGraph<V> for Graph<V, FlowEdge> {
     }
 
     /// Computes a vector of flow paths. Each path includes edges sequentially with the flow across that edge.
-    fn max_flow(&mut self, source: VertexId, sink: VertexId) -> (i64, Vec<Vec<Triplet<FlowEdge>>>) {
-        let mut flow_paths: Vec<Vec<Triplet<FlowEdge>>> = Vec::new();
+    fn max_flow(&mut self, source: VertexId, sink: VertexId) -> (i64, Vec<Vec<Edge>>) {
+        let mut flow_paths: Vec<Vec<Edge>> = Vec::new();
         let mut total_flow = 0;
         loop {
             let path_option = self.augmenting_path(source, sink);
@@ -198,7 +201,7 @@ impl<'a, V: Property> FlowGraph<V> for Graph<V, FlowEdge> {
                         g_edge.flow = g_edge.flow + flow;
                     }
                     println!("{:?}", self.edges);
-                    flow_paths.push(edges);
+                    flow_paths.push(edges.iter().map(|triplet| Edge(triplet.0, triplet.2)).collect());
                 },
                 None => {
                     break;
@@ -294,20 +297,41 @@ mod tests {
     }
 
     #[test]
-    fn test_max_flow() {
+    fn test_max_flow_0() {
         let vertex_list = vec![(0, 0), (1, 0), (2, 0), (3, 0), (4, 0), (5, 0), (6, 0)];
         let edge_list = vec![
-            (0, 1, FlowEdge{flow: 0, capacity: 1}),
+            (0, 1, FlowEdge{flow: 0, capacity: 3}),
             (0, 2, FlowEdge{flow: 0, capacity: 1}),
-            (1, 3, FlowEdge{flow: 0, capacity: 1}),
+            (1, 3, FlowEdge{flow: 0, capacity: 2}),
             (1, 5, FlowEdge{flow: 0, capacity: 1}),
             (2, 5, FlowEdge{flow: 0, capacity: 1}),
             (2, 6, FlowEdge{flow: 0, capacity: 1}),
-            (3, 4, FlowEdge{flow: 0, capacity: 1})
+            (3, 4, FlowEdge{flow: 0, capacity: 2}),
+            (5, 6, FlowEdge{flow: 0, capacity: 1}),
+            (6, 4, FlowEdge{flow: 0, capacity: 2})
         ];
         let mut g = Graph::new(&vertex_list, &edge_list);
         let flow_result = g.max_flow(0, 4);
         let total_flow = flow_result.0;
-        let flow_paths = flow_result.1;
+        assert_eq!(total_flow, 4);
+    }
+    #[test]
+    fn test_max_flow_1() {
+        let vertex_list = vec![(0, 0), (1, 0), (2, 0), (3, 0), (4, 0), (5, 0), (6, 0)];
+        let edge_list = vec![
+            (0, 1, FlowEdge{flow: 0, capacity: 3}),
+            (0, 2, FlowEdge{flow: 0, capacity: 1}),
+            (1, 3, FlowEdge{flow: 0, capacity: 2}),
+            (1, 5, FlowEdge{flow: 0, capacity: 1}),
+            (2, 5, FlowEdge{flow: 0, capacity: 1}),
+            (2, 6, FlowEdge{flow: 0, capacity: 1}),
+            (3, 4, FlowEdge{flow: 0, capacity: 2}),
+            (5, 6, FlowEdge{flow: 0, capacity: 1}),
+            (6, 4, FlowEdge{flow: 0, capacity: 2})
+        ];
+        let mut g = Graph::new(&vertex_list, &edge_list);
+        let flow_result = g.max_flow(0, 4);
+        let total_flow = flow_result.0;
+        assert_eq!(total_flow, 4);
     }
 }
