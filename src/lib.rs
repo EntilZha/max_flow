@@ -1,7 +1,10 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, VecDeque, HashSet};
 use std::iter::Iterator;
 use std::u64;
 use std::usize;
+use std::fs::File;
+use std::io::BufReader;
+use std::io::BufRead;
 
 /// Alias type to usize for VertexId attributes.
 pub type VertexId = usize;
@@ -32,7 +35,7 @@ pub struct Vertex<V: Property> {
 }
 
 /// Edge property that provides fields for a flow graph.
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Default)]
 pub struct FlowEdge {
     pub capacity: i64,
     pub flow: i64
@@ -115,21 +118,27 @@ impl<'a, V: Property, E: Property> Graph<V, E> {
             adjacency_matrix: adjacency_matrix,
         }
     }
+
     pub fn size(&self) -> (usize, usize) {
         (self.vertexes.len(), self.edges.len())
     }
+
     pub fn n_vertexes(&self) -> usize {
         self.vertexes.len()
     }
+
     pub fn n_edges(&self) -> usize {
         self.edges.len()
     }
+
     pub fn adjacent_vertexes(&self, vertex: &VertexId) -> &Vec<VertexId> {
         &self.vertexes[vertex].neighbors
     }
+
     pub fn bfs_iter(&self, source: VertexId) -> BfsIterator<V, E, fn(V, E, V) -> bool> {
         BfsIterator::new(self, source, true_predicate)
     }
+
     pub fn bfs_iter_predicate<F>(&'a self, source: VertexId, predicate: F) -> BfsIterator<V, E, F>
     where F: Fn(V, E, V) -> bool {
         BfsIterator::new(self, source, predicate)
@@ -159,7 +168,7 @@ pub fn path_from_visited(source: VertexId,
 }
 
 /// Special type of graph which has edges which can have flow and capacity.
-pub trait FlowGraph<V> {
+pub trait FlowGraph<V: Property> {
     fn augmenting_path(&self, source: VertexId, sink: VertexId) -> Option<Vec<VertexId>>;
     fn max_flow(&mut self, source: VertexId, sink: VertexId) -> (i64, Vec<Vec<Edge>>);
 }
@@ -184,7 +193,7 @@ impl<'a, V: Property> FlowGraph<V> for Graph<V, FlowEdge> {
             let path_option = self.augmenting_path(source, sink);
             match path_option {
                 Some(path) => {
-                    println!("Path: {:?}", path);
+                    println!("DEBUG: Path: {:?}", path);
                     let mut edges: Vec<Triplet<FlowEdge>> = Vec::new();
                     for i in 0..path.len() {
                         if i + 1 != path.len() {
@@ -194,13 +203,13 @@ impl<'a, V: Property> FlowGraph<V> for Graph<V, FlowEdge> {
                         }
                     }
                     let flow: i64 = edges.iter().map(|triplet| triplet.1.capacity - triplet.1.flow).min().unwrap();
-                    println!("Path flow: {}", flow);
+                    println!("DEBUG: Path flow: {}", flow);
                     total_flow += flow;
                     for edge in &edges {
                         let g_edge = self.edges.get_mut(&(edge.0, edge.2)).unwrap();
                         g_edge.flow = g_edge.flow + flow;
                     }
-                    println!("{:?}", self.edges);
+                    println!("DEBUG: {:?}", self.edges);
                     flow_paths.push(edges.iter().map(|triplet| Edge(triplet.0, triplet.2)).collect());
                 },
                 None => {
@@ -210,6 +219,81 @@ impl<'a, V: Property> FlowGraph<V> for Graph<V, FlowEdge> {
         }
         (total_flow, flow_paths)
     }
+}
+
+pub fn flowgraph_from_file(file_name: &str) -> (VertexId, VertexId, Graph<usize, FlowEdge>) {
+    let f = File::open(file_name).expect(&format!("Input file does not exist: {}", file_name));
+    let reader = BufReader::new(&f);
+    let mut num_vertexes = 0;
+    let mut num_edges = 0;
+    let mut source = None;
+    let mut sink = None;
+    let mut edges: Vec<(VertexId, VertexId, FlowEdge)> = Vec::new();
+    for raw_line in reader.lines() {
+        let line = raw_line.unwrap();
+        let tokens = line.split_whitespace().collect::<Vec<_>>();
+        match tokens.len() {
+            4 => {
+                match tokens[0] {
+                    "p" => {
+                        num_vertexes = tokens[2].parse::<_>().expect("Expected an integer for number of vertexes");
+                        num_edges = tokens[3].parse::<_>().expect("Expected an integer for number of edges");
+                    },
+                    "a" => {
+                        let source = tokens[1].parse::<VertexId>().expect("Expected an integer for source in edge");
+                        let dest = tokens[2].parse::<VertexId>().expect("Expected an integer for destination in edge");
+                        let capacity = tokens[3].parse::<_>().expect("Expected an integer for capaicty");
+                        edges.push((source, dest, FlowEdge{flow: 0, capacity: capacity}));
+                    },
+                    _ => {
+                        panic!("Invalid line: {}", line);
+                    }
+                }
+            },
+            3 => {
+                match tokens[0] {
+                    "n" => {
+                        match tokens[2] {
+                            "s" => {
+                                source = Some(tokens[1].parse::<VertexId>().expect("Expected an integer for source"));
+                            },
+                            "t" => {
+                                sink = Some(tokens[1].parse::<VertexId>().expect("Expected an integer for sink"));
+                            },
+                            _ => {
+                                panic!("Invalid line: {}", line);
+                            }
+                        }
+                    }
+                    _ => {
+                        panic!("Invalid line: {}", line);
+                    }
+                }
+            },
+            1 => {
+                if tokens[0] == "a" {
+                    break;
+                } else {
+                    panic!("Invalid line: {}", line);
+                }
+            },
+            0 => {
+                break;
+            }
+            _ =>{
+                panic!("Invalid line: {}", line)
+            }
+        }
+    }
+    assert_eq!(edges.len(), num_edges);
+    let mut vertex_set: HashSet<VertexId> = HashSet::new();
+    for e in &edges {
+        vertex_set.insert(e.0);
+        vertex_set.insert(e.1);
+    }
+    assert_eq!(vertex_set.len(), num_vertexes);
+    let vertexes = (0..num_vertexes).map(|x| (x, 0)).collect::<Vec<_>>();
+    (source.expect("Must have a source"), sink.expect("Must have a sink"), Graph::new(&vertexes, &edges))
 }
 
 fn true_predicate<'a, V: Property, E: Property>(_: V, _: E, _: V) -> bool {
@@ -228,6 +312,7 @@ mod tests {
     use VertexId;
     use FlowEdge;
     use path_from_visited;
+    use flowgraph_from_file;
     use std::collections::HashSet;
     use std::usize;
 
@@ -317,21 +402,54 @@ mod tests {
     }
     #[test]
     fn test_max_flow_1() {
-        let vertex_list = vec![(0, 0), (1, 0), (2, 0), (3, 0), (4, 0), (5, 0), (6, 0)];
+        let vertex_list = vec![(0, 0), (1, 0), (2, 0), (3, 0)];
         let edge_list = vec![
-            (0, 1, FlowEdge{flow: 0, capacity: 3}),
-            (0, 2, FlowEdge{flow: 0, capacity: 1}),
-            (1, 3, FlowEdge{flow: 0, capacity: 2}),
-            (1, 5, FlowEdge{flow: 0, capacity: 1}),
-            (2, 5, FlowEdge{flow: 0, capacity: 1}),
-            (2, 6, FlowEdge{flow: 0, capacity: 1}),
-            (3, 4, FlowEdge{flow: 0, capacity: 2}),
-            (5, 6, FlowEdge{flow: 0, capacity: 1}),
-            (6, 4, FlowEdge{flow: 0, capacity: 2})
+            (0, 2, FlowEdge{flow: 0, capacity: 5}),
+            (0, 3, FlowEdge{flow: 0, capacity: 5}),
+            (2, 3, FlowEdge{flow: 0, capacity: 1}),
+            (2, 1, FlowEdge{flow: 0, capacity: 5}),
+            (3, 1, FlowEdge{flow: 0, capacity: 5}),
         ];
         let mut g = Graph::new(&vertex_list, &edge_list);
-        let flow_result = g.max_flow(0, 4);
+        let flow_result = g.max_flow(0, 1);
         let total_flow = flow_result.0;
-        assert_eq!(total_flow, 4);
+        assert_eq!(total_flow, 10);
+    }
+    #[test]
+    fn test_max_flow_2() {
+        let vertex_list = vec![(0, 0), (1, 0), (2, 0), (3, 0), (4, 0), (5, 0)];
+        let edge_list = vec![
+            (0, 1, FlowEdge{flow: 0, capacity: 11}),
+            (0, 2, FlowEdge{flow: 0, capacity: 12}),
+            (2, 1, FlowEdge{flow: 0, capacity: 1}),
+            (1, 3, FlowEdge{flow: 0, capacity: 12}),
+            (2, 4, FlowEdge{flow: 0, capacity: 11}),
+            (4, 3, FlowEdge{flow: 0, capacity: 7}),
+            (4, 5, FlowEdge{flow: 0, capacity: 4}),
+            (3, 5, FlowEdge{flow: 0, capacity: 19}),
+        ];
+        let mut g = Graph::new(&vertex_list, &edge_list);
+        let flow_result = g.max_flow(0, 5);
+        let total_flow = flow_result.0;
+        assert_eq!(total_flow, 23);
+    }
+    fn flow_from_file(file_name: &str, flow: i64) {
+        println!("Testing file: {}\n", file_name);
+        let parsed = flowgraph_from_file(file_name);
+        let source = parsed.0;
+        let sink = parsed.1;
+        let mut g = parsed.2;
+        println!("{:?}", g);
+        let flow_result = g.max_flow(source, sink);
+        let total_flow = flow_result.0;
+        assert_eq!(total_flow, flow);
+        println!("");
+    }
+
+    #[test]
+    fn test_maxflow_from_file() {
+        flow_from_file("data/flow-graph.txt", 10);
+        flow_from_file("data/bipartite-flow.txt", 3);
+        flow_from_file("data/central.txt", 5);
     }
 }
