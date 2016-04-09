@@ -1,13 +1,24 @@
 extern crate graph;
 
 use std::env;
-use graph::flowgraph_from_file;
-use graph::FlowGraph;
+use graph::{flow_from_dicaps, flow_from_txt, FlowGraph};
 
 fn main() {
     let args: Vec<String> = env::args().collect();
-    let file_name = &args[1];
-    let parsed = flowgraph_from_file(&file_name);
+    let file_name = &args[2];
+    let file_type = args[1].as_str();
+    let parsed_opt = match file_type {
+        "dicaps" => {
+            Some(flow_from_dicaps(&file_name))
+        },
+        "txt" => {
+            Some(flow_from_txt(&file_name))
+        },
+        _ => {
+            None
+        }
+    };
+    let parsed = parsed_opt.expect("Expected either \"dicaps\" or \"txt\"");
     let source = parsed.0;
     let sink = parsed.1;
     let mut g = parsed.2;

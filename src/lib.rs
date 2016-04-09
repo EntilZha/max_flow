@@ -221,7 +221,7 @@ impl<'a, V: Property> FlowGraph<V> for Graph<V, FlowEdge> {
     }
 }
 
-pub fn flowgraph_from_file(file_name: &str) -> (VertexId, VertexId, Graph<usize, FlowEdge>) {
+pub fn flow_from_dicaps(file_name: &str) -> (VertexId, VertexId, Graph<usize, FlowEdge>) {
     let f = File::open(file_name).expect(&format!("Input file does not exist: {}", file_name));
     let reader = BufReader::new(&f);
     let mut num_vertexes = 0;
@@ -296,6 +296,34 @@ pub fn flowgraph_from_file(file_name: &str) -> (VertexId, VertexId, Graph<usize,
     (source.expect("Must have a source"), sink.expect("Must have a sink"), Graph::new(&vertexes, &edges))
 }
 
+pub fn flow_from_txt(file_name: &str) -> (VertexId, VertexId, Graph<usize, FlowEdge>) {
+    let f = File::open(file_name).expect(&format!("Input file does not exist: {}", file_name));
+    let reader = BufReader::new(&f);
+    let mut edges: Vec<(VertexId, VertexId, FlowEdge)> = Vec::new();
+    let mut i = 0;
+    let mut num_vertexes = 0;
+    for raw_line in reader.lines() {
+        let line = raw_line.unwrap();
+        let tokens = line.split_whitespace().collect::<Vec<_>>();
+        if i == 0 {
+            num_vertexes = tokens[0].parse::<usize>().expect("Expected an integer for source in edge");
+        } else {
+            for v in tokens.iter().enumerate() {
+                let capacity = v.1.parse::<i64>().expect("Expected an integer capacity");
+                if capacity > 0 {
+                    edges.push(
+                        (i - 1, v.0,
+                            FlowEdge{capacity: capacity, flow: 0})
+                    );
+                }
+            }
+        }
+            i += 1;
+    }
+    let vertexes = (0..num_vertexes).map(|x| (x, 0)).collect::<Vec<_>>();
+    (0, num_vertexes - 1, Graph::new(&vertexes, &edges))
+}
+
 fn true_predicate<'a, V: Property, E: Property>(_: V, _: E, _: V) -> bool {
     true
 }
@@ -312,7 +340,8 @@ mod tests {
     use VertexId;
     use FlowEdge;
     use path_from_visited;
-    use flowgraph_from_file;
+    use flow_from_dicaps;
+    use flow_from_txt;
     use std::collections::HashSet;
     use std::usize;
 
@@ -400,6 +429,7 @@ mod tests {
         let total_flow = flow_result.0;
         assert_eq!(total_flow, 4);
     }
+
     #[test]
     fn test_max_flow_1() {
         let vertex_list = vec![(0, 0), (1, 0), (2, 0), (3, 0)];
@@ -415,6 +445,7 @@ mod tests {
         let total_flow = flow_result.0;
         assert_eq!(total_flow, 10);
     }
+
     #[test]
     fn test_max_flow_2() {
         let vertex_list = vec![(0, 0), (1, 0), (2, 0), (3, 0), (4, 0), (5, 0)];
@@ -433,9 +464,18 @@ mod tests {
         let total_flow = flow_result.0;
         assert_eq!(total_flow, 23);
     }
-    fn flow_from_file(file_name: &str, flow: i64) {
+
+    enum FileType {
+        Dicaps,
+        Text
+    }
+
+    fn test_flow_from_file(file_name: &str, flow: i64, file_type: FileType) {
         println!("Testing file: {}\n", file_name);
-        let parsed = flowgraph_from_file(file_name);
+        let parsed = match file_type {
+            FileType::Dicaps => flow_from_dicaps(file_name),
+            FileType::Text => flow_from_txt(file_name)
+        };
         let source = parsed.0;
         let sink = parsed.1;
         let mut g = parsed.2;
@@ -447,9 +487,16 @@ mod tests {
     }
 
     #[test]
-    fn test_maxflow_from_file() {
-        flow_from_file("data/flow-graph.txt", 10);
-        flow_from_file("data/bipartite-flow.txt", 3);
-        flow_from_file("data/central.txt", 5);
+    fn test_maxflow_from_files() {
+        test_flow_from_file("data/dicaps/flow-graph.txt", 10, FileType::Dicaps);
+        test_flow_from_file("data/dicaps/bipartite-flow.txt", 3, FileType::Dicaps);
+        test_flow_from_file("data/dicaps/central.txt", 5, FileType::Dicaps);
+        test_flow_from_file("data/txt/test_1.txt", 10, FileType::Text);
+        test_flow_from_file("data/txt/test_2.txt", 23, FileType::Text);
+        test_flow_from_file("data/txt/test_3.txt", 935, FileType::Text);
+        test_flow_from_file("data/txt/test_4.txt", 2789, FileType::Text);
+        test_flow_from_file("data/txt/test_5.txt", 2000000000, FileType::Text);
+        test_flow_from_file("data/txt/test_6.txt", 23, FileType::Text);
+        test_flow_from_file("data/txt/test_7.txt", 256, FileType::Text);
     }
 }
