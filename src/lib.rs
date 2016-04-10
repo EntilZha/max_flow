@@ -1,8 +1,6 @@
 use std::collections::{VecDeque, HashSet};
 use std::iter::Iterator;
-use std::u64;
-use std::i64;
-use std::usize;
+use std::{i32, usize, u32};
 use std::fs::File;
 use std::io::BufReader;
 use std::io::BufRead;
@@ -24,30 +22,24 @@ impl<T> Property for T where T: Copy + Default {}
 /// Represent a Graph structure.
 #[derive(Debug)]
 pub struct Graph<V: Property, E: Property> {
-    pub vertexes: Vec<Vertex<V>>,
+    pub vertexes: Vec<V>,
     pub edges: Vec<Vec<E>>,
+    pub neighbors: Vec<Vec<VertexId>>,
     n_edges: usize
-}
-
-/// Represents a Vertex which has a value property and a list of neighbors.
-#[derive(Debug)]
-pub struct Vertex<V: Property> {
-    pub value: V,
-    pub neighbors: Vec<VertexId>,
 }
 
 /// Edge property that provides fields for a flow graph.
 #[derive(Debug, Copy, Clone, Default)]
 pub struct FlowEdge {
-    pub capacity: i64,
-    pub flow: i64
+    pub capacity: i32,
+    pub flow: i32
 }
 
 /// Representation of breadth first search iterator.
 pub struct BfsIterator<'a, V: 'a + Property, E: 'a + Property, F> {
     queue: VecDeque<VertexId>,
     graph: &'a Graph<V, E>,
-    distances: Vec<u64>,
+    distances: Vec<u32>,
     parents: Vec<VertexId>,
     predicate: F
 }
@@ -56,7 +48,7 @@ impl<'a, V: Property, E: Property, F> BfsIterator<'a, V, E, F> {
     fn new(graph: &'a Graph<V, E>, source: VertexId, predicate: F) -> BfsIterator<'a, V, E, F> {
         let mut queue = VecDeque::new();
         queue.push_back(source);
-        let mut distances = vec![u64::MAX; graph.n_vertexes()];
+        let mut distances = vec![u32::MAX; graph.n_vertexes()];
         let parents = vec![usize::MAX; graph.n_vertexes()];
         distances[source] = 0;
         BfsIterator {
@@ -73,15 +65,14 @@ impl<'a, V: Property, E: Property, F> BfsIterator<'a, V, E, F> {
 /// Returns in order a tuple of (vertex, distance, parent)
 impl<'a, V: Property, E: Property, F> Iterator for BfsIterator<'a, V, E, F>
     where F: Fn(E) -> bool {
-    type Item = (VertexId, u64, VertexId);
-    fn next(&mut self) -> Option<(VertexId, u64, VertexId)> {
-        let g = self.graph;
+    type Item = (VertexId, u32, VertexId);
+    fn next(&mut self) -> Option<(VertexId, u32, VertexId)> {
         match self.queue.pop_front() {
             Some(vertex) => {
-                for v in &self.graph.vertexes[vertex].neighbors {
-                    if self.distances[*v] == u64::MAX {
+                for v in &self.graph.neighbors[vertex] {
+                    if self.distances[*v] == u32::MAX {
                         let predicate = &self.predicate;
-                        if !predicate(g.edges[vertex][*v]) {
+                        if !predicate(self.graph.edges[vertex][*v]) {
                             continue;
                         }
                         self.distances[*v] = self.distances[vertex] + 1;
@@ -98,11 +89,12 @@ impl<'a, V: Property, E: Property, F> Iterator for BfsIterator<'a, V, E, F>
 
 impl<'a, V: Property, E: Property> Graph<V, E> {
     pub fn new(vertex_list: &Vec<(VertexId, V)>, edge_list: &Vec<(VertexId, VertexId, E)>) -> Graph<V, E> {
-        let mut vertexes: Vec<Vertex<V>> = Vec::with_capacity(vertex_list.len());
+        let mut vertexes: Vec<V> = Vec::with_capacity(vertex_list.len());
+        let mut neighbors: Vec<Vec<VertexId>> = vec![Vec::new(); vertex_list.len()];
         let mut i = 0;
         for v in vertex_list {
             assert!(v.0 == i, "Must provide vertexes in order from 0 to n - 1");
-            vertexes.push(Vertex {value: v.1, neighbors: Vec::new()});
+            vertexes.push(v.1);
             i += 1;
         }
 
@@ -110,13 +102,14 @@ impl<'a, V: Property, E: Property> Graph<V, E> {
         let mut n_edges = 0;
         for edge in edge_list {
             n_edges += 1;
-            vertexes.get_mut(edge.0).unwrap().neighbors.push(edge.1);
+            neighbors.get_mut(edge.0).unwrap().push(edge.1);
             edges[edge.0][edge.1] = edge.2;
         }
 
         Graph {
             vertexes: vertexes,
             edges: edges,
+            neighbors: neighbors,
             n_edges: n_edges
         }
     }
@@ -148,12 +141,7 @@ impl<'a, V: Property, E: Property> Graph<V, E> {
 /// that there does exist a path, it is a programming error which will cause a panic if that is not true
 pub fn path_from_visited(source: VertexId,
                          sink: VertexId,
-                         visited: &Vec<(VertexId, u64, VertexId)>,
-                         n_vertexes: usize) -> Vec<VertexId> {
-    let mut node_parent_map = vec![usize::MAX; n_vertexes];
-    for node in visited {
-        node_parent_map[node.0] = node.2;
-    }
+                         node_parent_map: &Vec<VertexId>) -> Vec<VertexId> {
     let mut path: Vec<VertexId> = Vec::new();
     let mut node = sink;
     loop {
@@ -170,29 +158,29 @@ pub fn path_from_visited(source: VertexId,
 /// Special type of graph which has edges which can have flow and capacity.
 pub trait FlowGraph<V: Property> {
     fn augmenting_path(&self, source: VertexId, sink: VertexId) -> Option<Vec<VertexId>>;
-    fn max_flow(&mut self, source: VertexId, sink: VertexId) -> (i64, Vec<Vec<Edge>>);
+    fn max_flow(&mut self, source: VertexId, sink: VertexId) -> (i32, Vec<Vec<Edge>>);
 }
 
 impl<'a, V: Property> FlowGraph<V> for Graph<V, FlowEdge> {
     /// Returns a path from source to sink if one exists that has non-zero flow.
     fn augmenting_path(&self, source: VertexId, sink: VertexId) -> Option<Vec<VertexId>> {
         let bfs_iter = BfsIterator::new(self, source, flow_predicate);
-        let mut bfs_edges: Vec<(VertexId, u64, VertexId)> = Vec::new();
+        let mut node_parent_map = vec![usize::MAX; self.n_vertexes()];
         let mut sink_exists = false;
-        for e in bfs_iter {
-            bfs_edges.push(e);
-            sink_exists = sink_exists || e.0 == sink;
+        for node in bfs_iter {
+            node_parent_map[node.0] = node.2;
+            sink_exists = sink_exists || node.0 == sink;
         }
         match sink_exists {
             true => {
-                Some(path_from_visited(source, sink, &bfs_edges, self.n_vertexes()))
+                Some(path_from_visited(source, sink, &node_parent_map))
             },
             _ => None
         }
     }
 
     /// Computes a vector of flow paths. Each path includes edges sequentially with the flow across that edge.
-    fn max_flow(&mut self, source: VertexId, sink: VertexId) -> (i64, Vec<Vec<Edge>>) {
+    fn max_flow(&mut self, source: VertexId, sink: VertexId) -> (i32, Vec<Vec<Edge>>) {
         let mut flow_paths: Vec<Vec<Edge>> = Vec::new();
         let mut total_flow = 0;
         loop {
@@ -200,7 +188,7 @@ impl<'a, V: Property> FlowGraph<V> for Graph<V, FlowEdge> {
             match path_option {
                 Some(path) => {
                     let mut edges: Vec<Triplet<FlowEdge>> = Vec::new();
-                    let mut flow: i64 = i64::MAX;
+                    let mut flow: i32 = i32::MAX;
                     for i in 0..path.len() {
                         if i + 1 != path.len() {
                             let v_0 = path[i];
@@ -326,7 +314,7 @@ pub fn flow_from_txt(file_name: &str) -> (VertexId, VertexId, Graph<usize, FlowE
             num_vertexes = tokens[0].parse::<usize>().expect("Expected an integer for source in edge");
         } else {
             for v in tokens.iter().enumerate() {
-                let capacity = v.1.parse::<i64>().expect("Expected an integer capacity");
+                let capacity = v.1.parse::<i32>().expect("Expected an integer capacity");
                 if capacity > 0 {
                     edges.push(
                         (i - 1, v.0,
@@ -374,7 +362,7 @@ mod tests {
         let vertex_list = vec![(0, 0), (1, 0), (2, 0), (3, 0), (4, 0), (5, 0)];
         let edge_list = vec![(0, 1, 1), (1, 2, 1), (0, 3, 1), (3, 4, 1), (4, 1, 0), (4, 5, 1), (5, 2, 1)];
         let g = Graph::new(&vertex_list, &edge_list);
-        let result: Vec<(VertexId, u64, VertexId)> = g.bfs_iter(0).collect();
+        let result: Vec<(VertexId, u32, VertexId)> = g.bfs_iter(0).collect();
         let mut result_set = HashSet::new();
         result_set.extend(result);
         let mut expect = HashSet::new();
@@ -415,7 +403,11 @@ mod tests {
         let source = 0;
         let sink = 4;
         let visited = vec![(0, 0, usize::MAX), (1, 1, 0), (2, 1, 0), (5, 2, 1), (3, 2, 1), (4, 3, 3), (6, 2, 2)];
-        let path = path_from_visited(source, sink, &visited, 7);
+        let mut node_parent_map = vec![usize::MAX; 7];
+        for n in visited {
+            node_parent_map[n.0] = n.2;
+        }
+        let path = path_from_visited(source, sink, &node_parent_map);
         assert_eq!(path, [0, 1, 3, 4]);
     }
 
@@ -479,7 +471,7 @@ mod tests {
         Text
     }
 
-    fn test_flow_from_file(file_name: &str, flow: i64, file_type: FileType) {
+    fn test_flow_from_file(file_name: &str, flow: i32, file_type: FileType) {
         println!("Testing file: {}\n", file_name);
         let parsed = match file_type {
             FileType::Dicaps => flow_from_dicaps(file_name),
