@@ -6,6 +6,7 @@ use std::usize;
 use std::fs::File;
 use std::io::BufReader;
 use std::io::BufRead;
+use std::cmp::min;
 
 /// Alias type to usize for VertexId attributes.
 pub type VertexId = usize;
@@ -71,16 +72,18 @@ impl<'a, V: Property, E: Property, F> BfsIterator<'a, V, E, F> {
 /// Iterator for a breadth first search over a graph
 /// Returns in order a tuple of (vertex, distance, parent)
 impl<'a, V: Property, E: Property, F> Iterator for BfsIterator<'a, V, E, F>
-    where F: Fn(V, E, V) -> bool {
+    where F: Fn(E) -> bool {
     type Item = (VertexId, u64, VertexId);
     fn next(&mut self) -> Option<(VertexId, u64, VertexId)> {
         let g = self.graph;
         match self.queue.pop_front() {
             Some(vertex) => {
-                for v in self.graph.adjacent_vertexes(&vertex) {
-                    let predicate = &self.predicate;
-                    let pred = predicate(g.vertexes[vertex].value, g.edges[vertex][*v], g.vertexes[*v].value);
-                    if self.distances[*v] == u64::MAX && pred {
+                for v in &self.graph.vertexes[vertex].neighbors {
+                    if self.distances[*v] == u64::MAX {
+                        let predicate = &self.predicate;
+                        if !predicate(g.edges[vertex][*v]) {
+                            continue;
+                        }
                         self.distances[*v] = self.distances[vertex] + 1;
                         self.parents[*v] = vertex;
                         self.queue.push_back(*v);
@@ -130,16 +133,12 @@ impl<'a, V: Property, E: Property> Graph<V, E> {
         self.n_edges
     }
 
-    pub fn adjacent_vertexes(&self, vertex: &VertexId) -> &Vec<VertexId> {
-        &self.vertexes[*vertex].neighbors
-    }
-
-    pub fn bfs_iter(&self, source: VertexId) -> BfsIterator<V, E, fn(V, E, V) -> bool> {
+    pub fn bfs_iter(&self, source: VertexId) -> BfsIterator<V, E, fn(E) -> bool> {
         BfsIterator::new(self, source, true_predicate)
     }
 
     pub fn bfs_iter_predicate<F>(&'a self, source: VertexId, predicate: F) -> BfsIterator<V, E, F>
-    where F: Fn(V, E, V) -> bool {
+    where F: Fn(E) -> bool {
         BfsIterator::new(self, source, predicate)
     }
 }
@@ -208,9 +207,7 @@ impl<'a, V: Property> FlowGraph<V> for Graph<V, FlowEdge> {
                             let v_1 = path[i + 1];
                             let flow_edge = self.edges[v_0][v_1];
                             edges.push(Triplet(v_0, flow_edge, v_1));
-                            if flow_edge.capacity - flow_edge.flow < flow {
-                                flow = flow_edge.capacity - flow_edge.flow;
-                            }
+                            flow = min(flow_edge.capacity - flow_edge.flow, flow);
                         }
                     }
                     total_flow += flow;
@@ -344,12 +341,12 @@ pub fn flow_from_txt(file_name: &str) -> (VertexId, VertexId, Graph<usize, FlowE
     (0, num_vertexes - 1, Graph::new(&vertexes, &edges))
 }
 
-fn true_predicate<'a, V: Property, E: Property>(_: V, _: E, _: V) -> bool {
+fn true_predicate<'a, E: Property>(_: E) -> bool {
     true
 }
 
 /// Ensure that there is available flow across the edge.
-fn flow_predicate<'a, V: Property>(_: V, edge: FlowEdge, _: V) -> bool {
+fn flow_predicate<'a>(edge: FlowEdge) -> bool {
     edge.capacity - edge.flow > 0
 }
 

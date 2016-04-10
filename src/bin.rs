@@ -29,10 +29,10 @@ fn main() {
     let flow_result = g.max_flow(source, sink);
     let end_time = time::get_time();
     let total_flow = flow_result.0;
-    let flow_paths = flow_result.1;
+    //let flow_paths = flow_result.1;
     let diff = end_time - start_time;
 
-    println!("Flow Paths: {:?}", flow_paths);
+    //println!("Flow Paths: {:?}", flow_paths);
     println!("Total Flow: {}", total_flow);
     println!("Runtime: {}s", diff.num_milliseconds() as f64 / 1000.0);
 }
