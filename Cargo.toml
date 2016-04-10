@@ -3,6 +3,9 @@ name = "max_flow"
 version = "0.1.0"
 authors = ["Pedro Rodriguez <ski.rodriguez@gmail.com>"]
 
+[profile.release]
+debug = true
+
 [lib]
 name = "graph"
 path = "src/lib.rs"
@@ -12,3 +15,4 @@ name = "max_flow"
 path = "src/bin.rs"
 
 [dependencies]
+time = "0.1"

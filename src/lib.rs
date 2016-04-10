@@ -1,6 +1,7 @@
-use std::collections::{HashMap, VecDeque, HashSet};
+use std::collections::{VecDeque, HashSet};
 use std::iter::Iterator;
 use std::u64;
+use std::i64;
 use std::usize;
 use std::fs::File;
 use std::io::BufReader;
@@ -16,15 +17,15 @@ pub struct Triplet<T: Property>(pub VertexId, pub T, pub VertexId);
 pub struct Edge(pub VertexId, pub VertexId);
 
 /// Valid type to be used for a vertex or edge property.
-pub trait Property: Copy {}
-impl<T> Property for T where T: Copy {}
+pub trait Property: Copy + Default {}
+impl<T> Property for T where T: Copy + Default {}
 
 /// Represent a Graph structure.
 #[derive(Debug)]
 pub struct Graph<V: Property, E: Property> {
-    pub vertexes: HashMap<VertexId, Vertex<V>>,
-    pub edges: HashMap<(VertexId, VertexId), E>,
-    adjacency_matrix: Vec<Vec<bool>>,
+    pub vertexes: Vec<Vertex<V>>,
+    pub edges: Vec<Vec<E>>,
+    n_edges: usize
 }
 
 /// Represents a Vertex which has a value property and a list of neighbors.
@@ -78,7 +79,7 @@ impl<'a, V: Property, E: Property, F> Iterator for BfsIterator<'a, V, E, F>
             Some(vertex) => {
                 for v in self.graph.adjacent_vertexes(&vertex) {
                     let predicate = &self.predicate;
-                    let pred = predicate(g.vertexes[&vertex].value, g.edges[&(vertex, *v)], g.vertexes[v].value);
+                    let pred = predicate(g.vertexes[vertex].value, g.edges[vertex][*v], g.vertexes[*v].value);
                     if self.distances[*v] == u64::MAX && pred {
                         self.distances[*v] = self.distances[vertex] + 1;
                         self.parents[*v] = vertex;
@@ -94,33 +95,31 @@ impl<'a, V: Property, E: Property, F> Iterator for BfsIterator<'a, V, E, F>
 
 impl<'a, V: Property, E: Property> Graph<V, E> {
     pub fn new(vertex_list: &Vec<(VertexId, V)>, edge_list: &Vec<(VertexId, VertexId, E)>) -> Graph<V, E> {
-        let mut vertexes: HashMap<VertexId, Vertex<V>> = HashMap::new();
+        let mut vertexes: Vec<Vertex<V>> = Vec::with_capacity(vertex_list.len());
+        let mut i = 0;
         for v in vertex_list {
-            vertexes.insert(v.0,
-                            Vertex {
-                                value: v.1,
-                                neighbors: Vec::new(),
-                            });
+            assert!(v.0 == i, "Must provide vertexes in order from 0 to n - 1");
+            vertexes.push(Vertex {value: v.1, neighbors: Vec::new()});
+            i += 1;
         }
-        let n_vertexes: usize = vertexes.len();
 
-        let mut adjacency_matrix: Vec<Vec<bool>> = vec![vec![false; n_vertexes]; n_vertexes];
-        let mut edges: HashMap<(VertexId, VertexId), E> = HashMap::new();
+        let mut edges: Vec<Vec<E>> = vec![vec![Default::default(); vertexes.len()]; vertexes.len()];
+        let mut n_edges = 0;
         for edge in edge_list {
-            adjacency_matrix[edge.0][edge.1] = true;
-            vertexes.get_mut(&edge.0).unwrap().neighbors.push(edge.1);
-            edges.insert((edge.0, edge.1), edge.2);
+            n_edges += 1;
+            vertexes.get_mut(edge.0).unwrap().neighbors.push(edge.1);
+            edges[edge.0][edge.1] = edge.2;
         }
 
         Graph {
             vertexes: vertexes,
             edges: edges,
-            adjacency_matrix: adjacency_matrix,
+            n_edges: n_edges
         }
     }
 
     pub fn size(&self) -> (usize, usize) {
-        (self.vertexes.len(), self.edges.len())
+        (self.n_vertexes(), self.n_edges())
     }
 
     pub fn n_vertexes(&self) -> usize {
@@ -128,11 +127,11 @@ impl<'a, V: Property, E: Property> Graph<V, E> {
     }
 
     pub fn n_edges(&self) -> usize {
-        self.edges.len()
+        self.n_edges
     }
 
     pub fn adjacent_vertexes(&self, vertex: &VertexId) -> &Vec<VertexId> {
-        &self.vertexes[vertex].neighbors
+        &self.vertexes[*vertex].neighbors
     }
 
     pub fn bfs_iter(&self, source: VertexId) -> BfsIterator<V, E, fn(V, E, V) -> bool> {
@@ -150,20 +149,22 @@ impl<'a, V: Property, E: Property> Graph<V, E> {
 /// that there does exist a path, it is a programming error which will cause a panic if that is not true
 pub fn path_from_visited(source: VertexId,
                          sink: VertexId,
-                         visited: &Vec<(VertexId, u64, VertexId)>) -> Vec<VertexId> {
-    let mut node_parent_map: HashMap<VertexId, VertexId> = HashMap::new();
+                         visited: &Vec<(VertexId, u64, VertexId)>,
+                         n_vertexes: usize) -> Vec<VertexId> {
+    let mut node_parent_map = vec![usize::MAX; n_vertexes];
     for node in visited {
-        node_parent_map.insert(node.0, node.2);
+        node_parent_map[node.0] = node.2;
     }
     let mut path: Vec<VertexId> = Vec::new();
     let mut node = sink;
     loop {
-        path.insert(0, node);
+        path.push(node);
         if node == source {
             break;
         }
-        node = node_parent_map[&node];
+        node = node_parent_map[node];
     }
+    path.reverse();
     path
 }
 
@@ -176,10 +177,16 @@ pub trait FlowGraph<V: Property> {
 impl<'a, V: Property> FlowGraph<V> for Graph<V, FlowEdge> {
     /// Returns a path from source to sink if one exists that has non-zero flow.
     fn augmenting_path(&self, source: VertexId, sink: VertexId) -> Option<Vec<VertexId>> {
-        let bfs_edges: Vec<(VertexId, u64, VertexId)> = BfsIterator::new(self, source, flow_predicate).collect();
-        match bfs_edges.iter().any(|element| element.0 == sink) {
+        let bfs_iter = BfsIterator::new(self, source, flow_predicate);
+        let mut bfs_edges: Vec<(VertexId, u64, VertexId)> = Vec::new();
+        let mut sink_exists = false;
+        for e in bfs_iter {
+            bfs_edges.push(e);
+            sink_exists = sink_exists || e.0 == sink;
+        }
+        match sink_exists {
             true => {
-                Some(path_from_visited(source, sink, &bfs_edges))
+                Some(path_from_visited(source, sink, &bfs_edges, self.n_vertexes()))
             },
             _ => None
         }
@@ -193,24 +200,27 @@ impl<'a, V: Property> FlowGraph<V> for Graph<V, FlowEdge> {
             let path_option = self.augmenting_path(source, sink);
             match path_option {
                 Some(path) => {
-                    println!("DEBUG: Path: {:?}", path);
                     let mut edges: Vec<Triplet<FlowEdge>> = Vec::new();
+                    let mut flow: i64 = i64::MAX;
                     for i in 0..path.len() {
                         if i + 1 != path.len() {
                             let v_0 = path[i];
                             let v_1 = path[i + 1];
-                            edges.push(Triplet(v_0, self.edges[&(v_0, v_1)], v_1));
+                            let flow_edge = self.edges[v_0][v_1];
+                            edges.push(Triplet(v_0, flow_edge, v_1));
+                            if flow_edge.capacity - flow_edge.flow < flow {
+                                flow = flow_edge.capacity - flow_edge.flow;
+                            }
                         }
                     }
-                    let flow: i64 = edges.iter().map(|triplet| triplet.1.capacity - triplet.1.flow).min().unwrap();
-                    println!("DEBUG: Path flow: {}", flow);
                     total_flow += flow;
+                    let mut flow_path: Vec<Edge> = Vec::new();
                     for edge in &edges {
-                        let g_edge = self.edges.get_mut(&(edge.0, edge.2)).unwrap();
+                        let g_edge = self.edges.get_mut(edge.0).unwrap().get_mut(edge.2).unwrap();
                         g_edge.flow = g_edge.flow + flow;
+                        flow_path.push(Edge(edge.0, edge.2));
                     }
-                    println!("DEBUG: {:?}", self.edges);
-                    flow_paths.push(edges.iter().map(|triplet| Edge(triplet.0, triplet.2)).collect());
+                    flow_paths.push(flow_path);
                 },
                 None => {
                     break;
@@ -229,6 +239,7 @@ pub fn flow_from_dicaps(file_name: &str) -> (VertexId, VertexId, Graph<usize, Fl
     let mut source = None;
     let mut sink = None;
     let mut edges: Vec<(VertexId, VertexId, FlowEdge)> = Vec::new();
+    let mut num_parsed_edges = 0;
     for raw_line in reader.lines() {
         let line = raw_line.unwrap();
         let tokens = line.split_whitespace().collect::<Vec<_>>();
@@ -240,10 +251,13 @@ pub fn flow_from_dicaps(file_name: &str) -> (VertexId, VertexId, Graph<usize, Fl
                         num_edges = tokens[3].parse::<_>().expect("Expected an integer for number of edges");
                     },
                     "a" => {
-                        let source = tokens[1].parse::<VertexId>().expect("Expected an integer for source in edge");
-                        let dest = tokens[2].parse::<VertexId>().expect("Expected an integer for destination in edge");
+                        let u = tokens[1].parse::<VertexId>().expect("Expected an integer for source in edge");
+                        let v = tokens[2].parse::<VertexId>().expect("Expected an integer for destination in edge");
                         let capacity = tokens[3].parse::<_>().expect("Expected an integer for capaicty");
-                        edges.push((source, dest, FlowEdge{flow: 0, capacity: capacity}));
+                        if capacity > 0 {
+                            edges.push((u, v, FlowEdge{flow: 0, capacity: capacity}));
+                        }
+                        num_parsed_edges += 1;
                     },
                     _ => {
                         panic!("Invalid line: {}", line);
@@ -255,10 +269,12 @@ pub fn flow_from_dicaps(file_name: &str) -> (VertexId, VertexId, Graph<usize, Fl
                     "n" => {
                         match tokens[2] {
                             "s" => {
-                                source = Some(tokens[1].parse::<VertexId>().expect("Expected an integer for source"));
+                                source = Some(
+                                    tokens[1].parse::<VertexId>().expect("Expected an integer for source"));
                             },
                             "t" => {
-                                sink = Some(tokens[1].parse::<VertexId>().expect("Expected an integer for sink"));
+                                sink = Some(
+                                    tokens[1].parse::<VertexId>().expect("Expected an integer for sink"));
                             },
                             _ => {
                                 panic!("Invalid line: {}", line);
@@ -285,13 +301,17 @@ pub fn flow_from_dicaps(file_name: &str) -> (VertexId, VertexId, Graph<usize, Fl
             }
         }
     }
-    assert_eq!(edges.len(), num_edges);
+    assert!(num_parsed_edges == num_edges,
+            "Number of edges specified and found are different: {} vs {}",
+            num_parsed_edges, num_edges);
     let mut vertex_set: HashSet<VertexId> = HashSet::new();
     for e in &edges {
         vertex_set.insert(e.0);
         vertex_set.insert(e.1);
     }
-    assert_eq!(vertex_set.len(), num_vertexes);
+    assert!(vertex_set.len() == num_vertexes,
+            "Number of vertexes specified and found are different: {} vs {}",
+            vertex_set.len(), num_vertexes);
     let vertexes = (0..num_vertexes).map(|x| (x, 0)).collect::<Vec<_>>();
     (source.expect("Must have a source"), sink.expect("Must have a sink"), Graph::new(&vertexes, &edges))
 }
@@ -335,13 +355,7 @@ fn flow_predicate<'a, V: Property>(_: V, edge: FlowEdge, _: V) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use Graph;
-    use FlowGraph;
-    use VertexId;
-    use FlowEdge;
-    use path_from_visited;
-    use flow_from_dicaps;
-    use flow_from_txt;
+    use super::*;
     use std::collections::HashSet;
     use std::usize;
 
@@ -351,13 +365,11 @@ mod tests {
         let edge_list = vec![(0, 1, 5), (0, 2, 2), (2, 3, 3), (4, 3, 1)];
         let g = Graph::new(&vertex_list, &edge_list);
         assert_eq!(g.size(), (5, 4));
-        for k in 0..5 {
-            assert!(g.vertexes.contains_key(&k));
-        }
-        assert_eq!(g.edges[&(0, 1)], 5);
-        assert_eq!(g.edges[&(0, 2)], 2);
-        assert_eq!(g.edges[&(2, 3)], 3);
-        assert_eq!(g.edges[&(4, 3)], 1);
+        assert_eq!(g.vertexes.len(), vertex_list.len());
+        assert_eq!(g.edges[0][1], 5);
+        assert_eq!(g.edges[0][2], 2);
+        assert_eq!(g.edges[2][3], 3);
+        assert_eq!(g.edges[4][3], 1);
     }
 
     #[test]
@@ -395,7 +407,7 @@ mod tests {
         assert_eq!(g.augmenting_path(0, 4).unwrap(), [0, 1, 3, 4]);
 
         {
-            let edge = g.edges.get_mut(&(1, 3)).unwrap();
+            let edge = g.edges.get_mut(1).unwrap().get_mut(3).unwrap();
             edge.flow = 1;
         }
         assert_eq!(g.augmenting_path(0, 4), None);
@@ -406,7 +418,7 @@ mod tests {
         let source = 0;
         let sink = 4;
         let visited = vec![(0, 0, usize::MAX), (1, 1, 0), (2, 1, 0), (5, 2, 1), (3, 2, 1), (4, 3, 3), (6, 2, 2)];
-        let path = path_from_visited(source, sink, &visited);
+        let path = path_from_visited(source, sink, &visited, 7);
         assert_eq!(path, [0, 1, 3, 4]);
     }
 
