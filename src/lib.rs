@@ -21,11 +21,11 @@ impl<T> Property for T where T: Copy + Default {}
 
 /// Represent a Graph structure.
 #[derive(Debug)]
-pub struct Graph<V: Property, E: Property> {
-    pub vertexes: Vec<V>,
+pub struct Graph<E: Property> {
     pub edges: Vec<Vec<E>>,
     pub neighbors: Vec<Vec<VertexId>>,
-    n_edges: usize
+    n_edges: usize,
+    n_vertexes: usize
 }
 
 /// Edge property that provides fields for a flow graph.
@@ -41,10 +41,10 @@ pub enum Search {
 }
 
 /// Representation of breadth first search iterator.
-pub struct GraphIterator<'a, V: 'a + Property, E: 'a + Property, F> {
+pub struct GraphIterator<'a, E: 'a + Property, F> {
     queue: VecDeque<VertexId>,
     stack: Vec<VertexId>,
-    graph: &'a Graph<V, E>,
+    graph: &'a Graph<E>,
     distances: Vec<u32>,
     parents: Vec<VertexId>,
     predicate: F,
@@ -53,9 +53,9 @@ pub struct GraphIterator<'a, V: 'a + Property, E: 'a + Property, F> {
     sink_found: bool
 }
 
-impl<'a, V: Property, E: Property, F> GraphIterator<'a, V, E, F>
+impl<'a, E: Property, F> GraphIterator<'a, E, F>
     where F: Fn(E) -> bool {
-    fn new(graph: &'a Graph<V, E>, source: VertexId, sink: VertexId, predicate: F, search: Search) -> GraphIterator<'a, V, E, F> {
+    fn new(graph: &'a Graph<E>, source: VertexId, sink: VertexId, predicate: F, search: Search) -> GraphIterator<'a, E, F> {
         let mut queue = VecDeque::new();
         let mut stack = Vec::new();
         queue.push_back(source);
@@ -98,7 +98,7 @@ impl<'a, V: Property, E: Property, F> GraphIterator<'a, V, E, F>
 
 /// Iterator for a breadth first search over a graph
 /// Returns in order a tuple of (vertex, distance, parent)
-impl<'a, V: Property, E: Property, F> Iterator for GraphIterator<'a, V, E, F>
+impl<'a, E: Property, F> Iterator for GraphIterator<'a, E, F>
     where F: Fn(E) -> bool {
     type Item = (VertexId, u32, VertexId);
     fn next(&mut self) -> Option<(VertexId, u32, VertexId)> {
@@ -129,18 +129,16 @@ impl<'a, V: Property, E: Property, F> Iterator for GraphIterator<'a, V, E, F>
     }
 }
 
-impl<'a, V: Property, E: Property> Graph<V, E> {
-    pub fn new(vertex_list: &Vec<(VertexId, V)>, edge_list: &Vec<(VertexId, VertexId, E)>) -> Graph<V, E> {
-        let mut vertexes: Vec<V> = Vec::with_capacity(vertex_list.len());
+impl<'a, E: Property> Graph<E> {
+    pub fn new(vertex_list: &Vec<VertexId>, edge_list: &Vec<(VertexId, VertexId, E)>) -> Graph<E> {
         let mut neighbors: Vec<Vec<VertexId>> = vec![Vec::new(); vertex_list.len()];
-        let mut i = 0;
+        let mut v_len = 0;
         for v in vertex_list {
-            assert!(v.0 == i, "Must provide vertexes in order from 0 to n - 1");
-            vertexes.push(v.1);
-            i += 1;
+            assert!(*v == v_len, "Must provide vertexes in order from 0 to n - 1");
+            v_len += 1;
         }
 
-        let mut edges: Vec<Vec<E>> = vec![vec![Default::default(); vertexes.len()]; vertexes.len()];
+        let mut edges: Vec<Vec<E>> = vec![vec![Default::default(); v_len]; v_len];
         let mut n_edges = 0;
         for edge in edge_list {
             n_edges += 1;
@@ -149,10 +147,10 @@ impl<'a, V: Property, E: Property> Graph<V, E> {
         }
 
         Graph {
-            vertexes: vertexes,
             edges: edges,
             neighbors: neighbors,
-            n_edges: n_edges
+            n_edges: n_edges,
+            n_vertexes: v_len
         }
     }
 
@@ -161,18 +159,18 @@ impl<'a, V: Property, E: Property> Graph<V, E> {
     }
 
     pub fn n_vertexes(&self) -> usize {
-        self.vertexes.len()
+        self.n_vertexes
     }
 
     pub fn n_edges(&self) -> usize {
         self.n_edges
     }
 
-    pub fn bfs_iter(&self, source: VertexId, sink: VertexId) -> GraphIterator<V, E, fn(E) -> bool> {
+    pub fn bfs_iter(&self, source: VertexId, sink: VertexId) -> GraphIterator<E, fn(E) -> bool> {
         GraphIterator::new(self, source, sink, true_predicate, Search::Bfs)
     }
 
-    pub fn dfs_iter(&self, source: VertexId, sink: VertexId) -> GraphIterator<V, E, fn(E) -> bool> {
+    pub fn dfs_iter(&self, source: VertexId, sink: VertexId) -> GraphIterator<E, fn(E) -> bool> {
         GraphIterator::new(self, source, sink, true_predicate, Search::Dfs)
     }
 }
@@ -197,16 +195,12 @@ pub fn path_from_visited(source: VertexId,
 }
 
 /// Special type of graph which has edges which can have flow and capacity.
-pub trait FlowGraph<V: Property> {
-    fn new(vertex_list: &Vec<(VertexId, V)>, edge_list: &Vec<(VertexId, VertexId, FlowEdge)>) -> Graph<V, FlowEdge>;
+pub trait FlowGraph {
     fn augmenting_path(&self, source: VertexId, sink: VertexId, search: Search) -> Option<Vec<VertexId>>;
     fn max_flow(&mut self, source: VertexId, sink: VertexId, search: Search) -> (i32, Vec<Vec<Edge>>);
 }
 
-impl<'a, V: Property> FlowGraph<V> for Graph<V, FlowEdge> {
-    fn new(vertex_list: &Vec<(VertexId, V)>, edge_list: &Vec<(VertexId, VertexId, FlowEdge)>) -> Graph<V, FlowEdge> {
-        Graph::new(vertex_list, edge_list)
-    }
+impl<'a> FlowGraph for Graph<FlowEdge> {
     /// Returns a path from source to sink if one exists that has non-zero flow.
     fn augmenting_path(&self, source: VertexId, sink: VertexId, search: Search) -> Option<Vec<VertexId>> {
         let iter = GraphIterator::new(self, source, sink, flow_predicate, search);
@@ -229,7 +223,7 @@ impl<'a, V: Property> FlowGraph<V> for Graph<V, FlowEdge> {
         let mut flow_paths: Vec<Vec<Edge>> = Vec::new();
         let mut total_flow = 0;
         loop {
-            let path_option = self.augmenting_path(source, sink, search);
+            let path_option: Option<Vec<VertexId>> = self.augmenting_path(source, sink, search);
             match path_option {
                 Some(path) => {
                     let mut edges: Vec<Triplet<FlowEdge>> = Vec::new();
@@ -267,7 +261,11 @@ impl<'a, V: Property> FlowGraph<V> for Graph<V, FlowEdge> {
     }
 }
 
-pub fn flow_from_dicaps(file_name: &str) -> (VertexId, VertexId, Graph<usize, FlowEdge>) {
+pub fn create_residual_edges(edge_list: &Vec<(VertexId, VertexId, FlowEdge)>) {
+
+}
+
+pub fn flow_from_dicaps(file_name: &str) -> (VertexId, VertexId, Graph<FlowEdge>) {
     let f = File::open(file_name).expect(&format!("Input file does not exist: {}", file_name));
     let reader = BufReader::new(&f);
     let mut num_vertexes = 0;
@@ -348,12 +346,12 @@ pub fn flow_from_dicaps(file_name: &str) -> (VertexId, VertexId, Graph<usize, Fl
     assert!(vertex_set.len() == num_vertexes,
             "Number of vertexes specified and found are different: {} vs {}",
             vertex_set.len(), num_vertexes);
-    let vertexes = (0..num_vertexes).map(|x| (x, 0)).collect::<Vec<_>>();
-    let g: Graph<VertexId, FlowEdge> = FlowGraph::new<VertexId>(&vertexes, &edges);
-    (source.expect("Must have a source"), sink.expect("Must have a sink"), g)
+    let vertexes = (0..num_vertexes).collect::<Vec<_>>();
+    create_residual_edges(&edges);
+    (source.expect("Must have a source"), sink.expect("Must have a sink"), Graph::new(&vertexes, &edges))
 }
 
-pub fn flow_from_txt(file_name: &str) -> (VertexId, VertexId, Graph<usize, FlowEdge>) {
+pub fn flow_from_txt(file_name: &str) -> (VertexId, VertexId, Graph<FlowEdge>) {
     let f = File::open(file_name).expect(&format!("Input file does not exist: {}", file_name));
     let reader = BufReader::new(&f);
     let mut edges: Vec<(VertexId, VertexId, FlowEdge)> = Vec::new();
@@ -377,7 +375,8 @@ pub fn flow_from_txt(file_name: &str) -> (VertexId, VertexId, Graph<usize, FlowE
         }
             i += 1;
     }
-    let vertexes = (0..num_vertexes).map(|x| (x, 0)).collect::<Vec<_>>();
+    let vertexes = (0..num_vertexes).collect::<Vec<_>>();
+    create_residual_edges(&edges);
     (0, num_vertexes - 1, Graph::new(&vertexes, &edges))
 }
 
@@ -398,11 +397,11 @@ mod tests {
 
     #[test]
     fn test_new_graph() {
-        let vertex_list = vec![(0, 0), (1, 0), (2, 0), (3, 0), (4, 0)];
+        let vertex_list = vec![0, 1, 2, 3, 4];
         let edge_list = vec![(0, 1, 5), (0, 2, 2), (2, 3, 3), (4, 3, 1)];
         let g = Graph::new(&vertex_list, &edge_list);
         assert_eq!(g.size(), (5, 4));
-        assert_eq!(g.vertexes.len(), vertex_list.len());
+        assert_eq!(g.n_vertexes(), vertex_list.len());
         assert_eq!(g.edges[0][1], 5);
         assert_eq!(g.edges[0][2], 2);
         assert_eq!(g.edges[2][3], 3);
@@ -411,7 +410,7 @@ mod tests {
 
     #[test]
     fn test_bfs() {
-        let vertex_list = vec![(0, 0), (1, 0), (2, 0), (3, 0), (4, 0), (5, 0)];
+        let vertex_list = vec![0, 1, 2, 3, 4, 5];
         let edge_list = vec![(0, 1, 1), (1, 2, 1), (0, 3, 1), (3, 4, 1), (4, 1, 0), (4, 5, 1), (5, 2, 1)];
         let g = Graph::new(&vertex_list, &edge_list);
         let result: Vec<(VertexId, u32, VertexId)> = g.bfs_iter(0, 2).collect();
@@ -427,7 +426,7 @@ mod tests {
 
     #[test]
     fn test_dfs() {
-        let vertex_list = vec![(0, 1), (1, 0), (2, 0), (3, 0), (4, 0)];
+        let vertex_list = vec![0, 1, 2, 3, 4];
         let edge_list = vec![ (0, 3, 1), (0, 1, 1), (1, 2, 1), (2, 4, 1), (3, 4, 1)];
         let g = Graph::new(&vertex_list, &edge_list);
         let result: Vec<_> = g.dfs_iter(0, 4).collect();
@@ -443,7 +442,7 @@ mod tests {
 
     #[test]
     fn test_augmenting_path() {
-        let vertex_list = vec![(0, 0), (1, 0), (2, 0), (3, 0), (4, 0), (5, 0), (6, 0)];
+        let vertex_list = vec![0, 1, 2, 3, 4, 5, 6];
         let edge_list = vec![
             (0, 1, FlowEdge{flow: 0, capacity: 1}),
             (0, 2, FlowEdge{flow: 0, capacity: 1}),
@@ -479,7 +478,7 @@ mod tests {
 
     #[test]
     fn test_max_flow_0() {
-        let vertex_list = vec![(0, 0), (1, 0), (2, 0), (3, 0), (4, 0), (5, 0), (6, 0)];
+        let vertex_list = vec![0, 1, 2, 3, 4, 5, 6];
         let edge_list = vec![
             (0, 1, FlowEdge{flow: 0, capacity: 3}),
             (0, 2, FlowEdge{flow: 0, capacity: 1}),
@@ -491,6 +490,7 @@ mod tests {
             (5, 6, FlowEdge{flow: 0, capacity: 1}),
             (6, 4, FlowEdge{flow: 0, capacity: 2})
         ];
+        create_residual_edges(&edge_list);
         let mut g = Graph::new(&vertex_list, &edge_list);
         let flow_result = g.max_flow(0, 4, Search::Bfs);
         let total_flow = flow_result.0;
@@ -499,7 +499,7 @@ mod tests {
 
     #[test]
     fn test_max_flow_1() {
-        let vertex_list = vec![(0, 0), (1, 0), (2, 0), (3, 0)];
+        let vertex_list = vec![0, 1, 2, 3];
         let edge_list = vec![
             (0, 2, FlowEdge{flow: 0, capacity: 5}),
             (0, 3, FlowEdge{flow: 0, capacity: 5}),
@@ -507,6 +507,7 @@ mod tests {
             (2, 1, FlowEdge{flow: 0, capacity: 5}),
             (3, 1, FlowEdge{flow: 0, capacity: 5}),
         ];
+        create_residual_edges(&edge_list);
         let mut g = Graph::new(&vertex_list, &edge_list);
         let flow_result = g.max_flow(0, 1, Search::Bfs);
         let total_flow = flow_result.0;
@@ -515,7 +516,7 @@ mod tests {
 
     #[test]
     fn test_max_flow_2() {
-        let vertex_list = vec![(0, 0), (1, 0), (2, 0), (3, 0), (4, 0), (5, 0)];
+        let vertex_list = vec![0, 1, 2, 3, 4, 5];
         let edge_list = vec![
             (0, 1, FlowEdge{flow: 0, capacity: 11}),
             (0, 2, FlowEdge{flow: 0, capacity: 12}),
@@ -526,6 +527,7 @@ mod tests {
             (4, 5, FlowEdge{flow: 0, capacity: 4}),
             (3, 5, FlowEdge{flow: 0, capacity: 19}),
         ];
+        create_residual_edges(&edge_list);
         let mut g = Graph::new(&vertex_list, &edge_list);
         let flow_result = g.max_flow(0, 5, Search::Bfs);
         let total_flow = flow_result.0;
