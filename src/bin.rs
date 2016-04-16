@@ -2,7 +2,7 @@ extern crate graph;
 extern crate time;
 
 use std::env;
-use graph::{flow_from_dicaps, flow_from_txt, FlowGraph};
+use graph::{flow_from_dicaps, flow_from_txt, FlowGraph, Search};
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -26,7 +26,7 @@ fn main() {
     let mut g = parsed.2;
     println!("Computing maximum flow");
     let start_time = time::get_time();
-    let flow_result = g.max_flow(source, sink);
+    let flow_result = g.max_flow(source, sink, Search::Bfs);
     let end_time = time::get_time();
     let total_flow = flow_result.0;
     //let flow_paths = flow_result.1;

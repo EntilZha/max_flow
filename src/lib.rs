@@ -35,54 +35,96 @@ pub struct FlowEdge {
     pub flow: i32
 }
 
+#[derive(Copy, Clone)]
+pub enum Search {
+    Bfs, Dfs
+}
+
 /// Representation of breadth first search iterator.
-pub struct BfsIterator<'a, V: 'a + Property, E: 'a + Property, F> {
+pub struct GraphIterator<'a, V: 'a + Property, E: 'a + Property, F> {
     queue: VecDeque<VertexId>,
+    stack: Vec<VertexId>,
     graph: &'a Graph<V, E>,
     distances: Vec<u32>,
     parents: Vec<VertexId>,
-    predicate: F
+    predicate: F,
+    search: Search,
+    sink: VertexId,
+    sink_found: bool
 }
 
-impl<'a, V: Property, E: Property, F> BfsIterator<'a, V, E, F> {
-    fn new(graph: &'a Graph<V, E>, source: VertexId, predicate: F) -> BfsIterator<'a, V, E, F> {
+impl<'a, V: Property, E: Property, F> GraphIterator<'a, V, E, F>
+    where F: Fn(E) -> bool {
+    fn new(graph: &'a Graph<V, E>, source: VertexId, sink: VertexId, predicate: F, search: Search) -> GraphIterator<'a, V, E, F> {
         let mut queue = VecDeque::new();
+        let mut stack = Vec::new();
         queue.push_back(source);
+        stack.push(source);
         let mut distances = vec![u32::MAX; graph.n_vertexes()];
         let parents = vec![usize::MAX; graph.n_vertexes()];
         distances[source] = 0;
-        BfsIterator {
+        GraphIterator {
             graph: graph,
             queue: queue,
+            stack: stack,
             distances: distances,
             parents: parents,
-            predicate: predicate
+            predicate: predicate,
+            search: search,
+            sink: sink,
+            sink_found: false
         }
+    }
+
+    fn pop(&mut self) -> Option<VertexId> {
+        match self.search {
+            Search::Bfs => self.queue.pop_front(),
+            Search::Dfs => self.stack.pop()
+        }
+    }
+
+    fn push(&mut self, v: VertexId) {
+        match self.search {
+            Search::Bfs => self.queue.push_back(v),
+            Search::Dfs => self.stack.push(v)
+        }
+    }
+
+    fn evaluate_predicate(&self, edge: E) -> bool {
+        let predicate = &self.predicate;
+        predicate(edge)
     }
 }
 
 /// Iterator for a breadth first search over a graph
 /// Returns in order a tuple of (vertex, distance, parent)
-impl<'a, V: Property, E: Property, F> Iterator for BfsIterator<'a, V, E, F>
+impl<'a, V: Property, E: Property, F> Iterator for GraphIterator<'a, V, E, F>
     where F: Fn(E) -> bool {
     type Item = (VertexId, u32, VertexId);
     fn next(&mut self) -> Option<(VertexId, u32, VertexId)> {
-        match self.queue.pop_front() {
-            Some(vertex) => {
-                for v in &self.graph.neighbors[vertex] {
-                    if self.distances[*v] == u32::MAX {
-                        let predicate = &self.predicate;
-                        if !predicate(self.graph.edges[vertex][*v]) {
-                            continue;
+        if self.sink_found {
+            None
+        }
+        else {
+            match self.pop() {
+                Some(vertex) => {
+                    if vertex == self.sink {
+                        self.sink_found = true;
+                    } else {
+                        for v in &self.graph.neighbors[vertex] {
+                            if self.distances[*v] == u32::MAX {
+                                if self.evaluate_predicate(self.graph.edges[vertex][*v]) {
+                                    self.distances[*v] = self.distances[vertex] + 1;
+                                    self.parents[*v] = vertex;
+                                    self.push(*v);
+                                }
+                            }
                         }
-                        self.distances[*v] = self.distances[vertex] + 1;
-                        self.parents[*v] = vertex;
-                        self.queue.push_back(*v);
                     }
+                    Some((vertex, self.distances[vertex], self.parents[vertex]))
                 }
-                Some((vertex, self.distances[vertex], self.parents[vertex]))
+                _ => None
             }
-            _ => None
         }
     }
 }
@@ -126,13 +168,12 @@ impl<'a, V: Property, E: Property> Graph<V, E> {
         self.n_edges
     }
 
-    pub fn bfs_iter(&self, source: VertexId) -> BfsIterator<V, E, fn(E) -> bool> {
-        BfsIterator::new(self, source, true_predicate)
+    pub fn bfs_iter(&self, source: VertexId, sink: VertexId) -> GraphIterator<V, E, fn(E) -> bool> {
+        GraphIterator::new(self, source, sink, true_predicate, Search::Bfs)
     }
 
-    pub fn bfs_iter_predicate<F>(&'a self, source: VertexId, predicate: F) -> BfsIterator<V, E, F>
-    where F: Fn(E) -> bool {
-        BfsIterator::new(self, source, predicate)
+    pub fn dfs_iter(&self, source: VertexId, sink: VertexId) -> GraphIterator<V, E, fn(E) -> bool> {
+        GraphIterator::new(self, source, sink, true_predicate, Search::Dfs)
     }
 }
 
@@ -157,17 +198,21 @@ pub fn path_from_visited(source: VertexId,
 
 /// Special type of graph which has edges which can have flow and capacity.
 pub trait FlowGraph<V: Property> {
-    fn augmenting_path(&self, source: VertexId, sink: VertexId) -> Option<Vec<VertexId>>;
-    fn max_flow(&mut self, source: VertexId, sink: VertexId) -> (i32, Vec<Vec<Edge>>);
+    fn new(vertex_list: &Vec<(VertexId, V)>, edge_list: &Vec<(VertexId, VertexId, FlowEdge)>) -> Graph<V, FlowEdge>;
+    fn augmenting_path(&self, source: VertexId, sink: VertexId, search: Search) -> Option<Vec<VertexId>>;
+    fn max_flow(&mut self, source: VertexId, sink: VertexId, search: Search) -> (i32, Vec<Vec<Edge>>);
 }
 
 impl<'a, V: Property> FlowGraph<V> for Graph<V, FlowEdge> {
+    fn new(vertex_list: &Vec<(VertexId, V)>, edge_list: &Vec<(VertexId, VertexId, FlowEdge)>) -> Graph<V, FlowEdge> {
+        Graph::new(vertex_list, edge_list)
+    }
     /// Returns a path from source to sink if one exists that has non-zero flow.
-    fn augmenting_path(&self, source: VertexId, sink: VertexId) -> Option<Vec<VertexId>> {
-        let bfs_iter = BfsIterator::new(self, source, flow_predicate);
+    fn augmenting_path(&self, source: VertexId, sink: VertexId, search: Search) -> Option<Vec<VertexId>> {
+        let iter = GraphIterator::new(self, source, sink, flow_predicate, search);
         let mut node_parent_map = vec![usize::MAX; self.n_vertexes()];
         let mut sink_exists = false;
-        for node in bfs_iter {
+        for node in iter {
             node_parent_map[node.0] = node.2;
             sink_exists = sink_exists || node.0 == sink;
         }
@@ -180,11 +225,11 @@ impl<'a, V: Property> FlowGraph<V> for Graph<V, FlowEdge> {
     }
 
     /// Computes a vector of flow paths. Each path includes edges sequentially with the flow across that edge.
-    fn max_flow(&mut self, source: VertexId, sink: VertexId) -> (i32, Vec<Vec<Edge>>) {
+    fn max_flow(&mut self, source: VertexId, sink: VertexId, search: Search) -> (i32, Vec<Vec<Edge>>) {
         let mut flow_paths: Vec<Vec<Edge>> = Vec::new();
         let mut total_flow = 0;
         loop {
-            let path_option = self.augmenting_path(source, sink);
+            let path_option = self.augmenting_path(source, sink, search);
             match path_option {
                 Some(path) => {
                     let mut edges: Vec<Triplet<FlowEdge>> = Vec::new();
@@ -201,8 +246,14 @@ impl<'a, V: Property> FlowGraph<V> for Graph<V, FlowEdge> {
                     total_flow += flow;
                     let mut flow_path: Vec<Edge> = Vec::new();
                     for edge in &edges {
-                        let g_edge = self.edges.get_mut(edge.0).unwrap().get_mut(edge.2).unwrap();
-                        g_edge.flow = g_edge.flow + flow;
+                        {
+                            let uv_edge = self.edges.get_mut(edge.0).unwrap().get_mut(edge.2).unwrap();
+                            uv_edge.flow = uv_edge.flow + flow;
+                        }
+                        {
+                            let vu_edge = self.edges.get_mut(edge.2).unwrap().get_mut(edge.0).unwrap();
+                            vu_edge.flow = vu_edge.flow - flow;
+                        }
                         flow_path.push(Edge(edge.0, edge.2));
                     }
                     flow_paths.push(flow_path);
@@ -298,7 +349,8 @@ pub fn flow_from_dicaps(file_name: &str) -> (VertexId, VertexId, Graph<usize, Fl
             "Number of vertexes specified and found are different: {} vs {}",
             vertex_set.len(), num_vertexes);
     let vertexes = (0..num_vertexes).map(|x| (x, 0)).collect::<Vec<_>>();
-    (source.expect("Must have a source"), sink.expect("Must have a sink"), Graph::new(&vertexes, &edges))
+    let g: Graph<VertexId, FlowEdge> = FlowGraph::new<VertexId>(&vertexes, &edges);
+    (source.expect("Must have a source"), sink.expect("Must have a sink"), g)
 }
 
 pub fn flow_from_txt(file_name: &str) -> (VertexId, VertexId, Graph<usize, FlowEdge>) {
@@ -362,7 +414,7 @@ mod tests {
         let vertex_list = vec![(0, 0), (1, 0), (2, 0), (3, 0), (4, 0), (5, 0)];
         let edge_list = vec![(0, 1, 1), (1, 2, 1), (0, 3, 1), (3, 4, 1), (4, 1, 0), (4, 5, 1), (5, 2, 1)];
         let g = Graph::new(&vertex_list, &edge_list);
-        let result: Vec<(VertexId, u32, VertexId)> = g.bfs_iter(0).collect();
+        let result: Vec<(VertexId, u32, VertexId)> = g.bfs_iter(0, 2).collect();
         let mut result_set = HashSet::new();
         result_set.extend(result);
         let mut expect = HashSet::new();
@@ -370,8 +422,22 @@ mod tests {
         expect.insert((1, 1, 0));
         expect.insert((2, 2, 1));
         expect.insert((3, 1, 0));
-        expect.insert((4, 2, 3));
-        expect.insert((5, 3, 4));
+        assert_eq!(result_set, expect);
+    }
+
+    #[test]
+    fn test_dfs() {
+        let vertex_list = vec![(0, 1), (1, 0), (2, 0), (3, 0), (4, 0)];
+        let edge_list = vec![ (0, 3, 1), (0, 1, 1), (1, 2, 1), (2, 4, 1), (3, 4, 1)];
+        let g = Graph::new(&vertex_list, &edge_list);
+        let result: Vec<_> = g.dfs_iter(0, 4).collect();
+        let mut result_set = HashSet::new();
+        result_set.extend(result);
+        let mut expect = HashSet::new();
+        expect.insert((0, 0, usize::MAX));
+        expect.insert((1, 1, 0));
+        expect.insert((2, 2, 1));
+        expect.insert((4, 3, 2));
         assert_eq!(result_set, expect);
     }
 
@@ -389,13 +455,13 @@ mod tests {
         ];
         let mut g = Graph::new(&vertex_list, &edge_list);
 
-        assert_eq!(g.augmenting_path(0, 4).unwrap(), [0, 1, 3, 4]);
+        assert_eq!(g.augmenting_path(0, 4, Search::Bfs).unwrap(), [0, 1, 3, 4]);
 
         {
             let edge = g.edges.get_mut(1).unwrap().get_mut(3).unwrap();
             edge.flow = 1;
         }
-        assert_eq!(g.augmenting_path(0, 4), None);
+        assert_eq!(g.augmenting_path(0, 4, Search::Bfs), None);
     }
 
     #[test]
@@ -426,7 +492,7 @@ mod tests {
             (6, 4, FlowEdge{flow: 0, capacity: 2})
         ];
         let mut g = Graph::new(&vertex_list, &edge_list);
-        let flow_result = g.max_flow(0, 4);
+        let flow_result = g.max_flow(0, 4, Search::Bfs);
         let total_flow = flow_result.0;
         assert_eq!(total_flow, 4);
     }
@@ -442,7 +508,7 @@ mod tests {
             (3, 1, FlowEdge{flow: 0, capacity: 5}),
         ];
         let mut g = Graph::new(&vertex_list, &edge_list);
-        let flow_result = g.max_flow(0, 1);
+        let flow_result = g.max_flow(0, 1, Search::Bfs);
         let total_flow = flow_result.0;
         assert_eq!(total_flow, 10);
     }
@@ -461,7 +527,7 @@ mod tests {
             (3, 5, FlowEdge{flow: 0, capacity: 19}),
         ];
         let mut g = Graph::new(&vertex_list, &edge_list);
-        let flow_result = g.max_flow(0, 5);
+        let flow_result = g.max_flow(0, 5, Search::Bfs);
         let total_flow = flow_result.0;
         assert_eq!(total_flow, 23);
     }
@@ -471,7 +537,7 @@ mod tests {
         Text
     }
 
-    fn test_flow_from_file(file_name: &str, flow: i32, file_type: FileType) {
+    fn test_flow_from_file(file_name: &str, flow: i32, file_type: FileType, search: Search) {
         println!("Testing file: {}\n", file_name);
         let parsed = match file_type {
             FileType::Dicaps => flow_from_dicaps(file_name),
@@ -481,7 +547,7 @@ mod tests {
         let sink = parsed.1;
         let mut g = parsed.2;
         println!("{:?}", g);
-        let flow_result = g.max_flow(source, sink);
+        let flow_result = g.max_flow(source, sink, search);
         let total_flow = flow_result.0;
         assert_eq!(total_flow, flow);
         println!("");
@@ -489,15 +555,27 @@ mod tests {
 
     #[test]
     fn test_maxflow_from_files() {
-        test_flow_from_file("data/dicaps/flow-graph.txt", 10, FileType::Dicaps);
-        test_flow_from_file("data/dicaps/bipartite-flow.txt", 3, FileType::Dicaps);
-        test_flow_from_file("data/dicaps/central.txt", 5, FileType::Dicaps);
-        test_flow_from_file("data/txt/test_1.txt", 10, FileType::Text);
-        test_flow_from_file("data/txt/test_2.txt", 23, FileType::Text);
-        test_flow_from_file("data/txt/test_3.txt", 935, FileType::Text);
-        test_flow_from_file("data/txt/test_4.txt", 2789, FileType::Text);
-        test_flow_from_file("data/txt/test_5.txt", 2000000000, FileType::Text);
-        test_flow_from_file("data/txt/test_6.txt", 23, FileType::Text);
-        test_flow_from_file("data/txt/test_7.txt", 256, FileType::Text);
+        test_flow_from_file("data/dicaps/flow-graph.txt", 10, FileType::Dicaps, Search::Bfs);
+        test_flow_from_file("data/dicaps/flow-graph.txt", 10, FileType::Dicaps, Search::Dfs);
+        test_flow_from_file("data/dicaps/bipartite-flow.txt", 3, FileType::Dicaps, Search::Bfs);
+        test_flow_from_file("data/dicaps/bipartite-flow.txt", 3, FileType::Dicaps, Search::Dfs);
+        test_flow_from_file("data/dicaps/central.txt", 5, FileType::Dicaps, Search::Bfs);
+        test_flow_from_file("data/dicaps/central.txt", 5, FileType::Dicaps, Search::Dfs);
+        test_flow_from_file("data/txt/test_1.txt", 10, FileType::Text, Search::Bfs);
+        test_flow_from_file("data/txt/test_1.txt", 10, FileType::Text, Search::Dfs);
+        test_flow_from_file("data/txt/test_2.txt", 23, FileType::Text, Search::Bfs);
+        test_flow_from_file("data/txt/test_2.txt", 23, FileType::Text, Search::Dfs);
+        test_flow_from_file("data/txt/test_3.txt", 935, FileType::Text, Search::Bfs);
+        test_flow_from_file("data/txt/test_3.txt", 935, FileType::Text, Search::Dfs);
+        test_flow_from_file("data/txt/test_4.txt", 2789, FileType::Text, Search::Bfs);
+        test_flow_from_file("data/txt/test_4.txt", 2789, FileType::Text, Search::Dfs);
+        test_flow_from_file("data/txt/test_5.txt", 2000000000, FileType::Text, Search::Bfs);
+        test_flow_from_file("data/txt/test_5.txt", 2000000000, FileType::Text, Search::Dfs);
+        test_flow_from_file("data/txt/test_6.txt", 23, FileType::Text, Search::Bfs);
+        test_flow_from_file("data/txt/test_6.txt", 23, FileType::Text, Search::Dfs);
+        test_flow_from_file("data/txt/test_7.txt", 256, FileType::Text, Search::Bfs);
+        test_flow_from_file("data/txt/test_7.txt", 256, FileType::Text, Search::Dfs);
+        test_flow_from_file("data/txt/test_8.txt", 20, FileType::Text, Search::Bfs);
+        test_flow_from_file("data/txt/test_8.txt", 20, FileType::Text, Search::Dfs);
     }
 }
