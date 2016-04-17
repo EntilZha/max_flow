@@ -237,7 +237,6 @@ impl<'a> FlowGraph for Graph<FlowEdge> {
                             flow = min(flow_edge.capacity - flow_edge.flow, flow);
                         }
                     }
-                    total_flow += flow;
                     let mut flow_path: Vec<Edge> = Vec::new();
                     for edge in &edges {
                         {
@@ -253,16 +252,26 @@ impl<'a> FlowGraph for Graph<FlowEdge> {
                     flow_paths.push(flow_path);
                 },
                 None => {
+                    for v in &self.neighbors[source] {
+                        if self.edges[source][*v].capacity != 0 {
+                            total_flow += self.edges[source][*v].flow;
+                        }
+                    }
                     break;
                 }
             }
         }
+
         (total_flow, flow_paths)
     }
 }
 
-pub fn create_residual_edges(edge_list: &Vec<(VertexId, VertexId, FlowEdge)>) {
-
+pub fn create_residual_edges(edge_list: &mut Vec<(VertexId, VertexId, FlowEdge)>) {
+    let mut residuals: Vec<(VertexId, VertexId, FlowEdge)> = Vec::with_capacity(edge_list.len());
+    for e in edge_list.iter() {
+        residuals.push((e.1, e.0, FlowEdge {capacity: 0, flow: 0}));
+    }
+    edge_list.extend(residuals);
 }
 
 pub fn flow_from_dicaps(file_name: &str) -> (VertexId, VertexId, Graph<FlowEdge>) {
@@ -347,7 +356,7 @@ pub fn flow_from_dicaps(file_name: &str) -> (VertexId, VertexId, Graph<FlowEdge>
             "Number of vertexes specified and found are different: {} vs {}",
             vertex_set.len(), num_vertexes);
     let vertexes = (0..num_vertexes).collect::<Vec<_>>();
-    create_residual_edges(&edges);
+    create_residual_edges(&mut edges);
     (source.expect("Must have a source"), sink.expect("Must have a sink"), Graph::new(&vertexes, &edges))
 }
 
@@ -357,26 +366,27 @@ pub fn flow_from_txt(file_name: &str) -> (VertexId, VertexId, Graph<FlowEdge>) {
     let mut edges: Vec<(VertexId, VertexId, FlowEdge)> = Vec::new();
     let mut i = 0;
     let mut num_vertexes = 0;
+    let mut flow_parsed = false;
     for raw_line in reader.lines() {
         let line = raw_line.unwrap();
         let tokens = line.split_whitespace().collect::<Vec<_>>();
-        if i == 0 {
-            num_vertexes = tokens[0].parse::<usize>().expect("Expected an integer for source in edge");
+        if !flow_parsed {
+            num_vertexes = tokens[0].parse::<usize>().expect("Expected an integer for number of edges");
+            flow_parsed = true;
         } else {
             for v in tokens.iter().enumerate() {
                 let capacity = v.1.parse::<i32>().expect("Expected an integer capacity");
                 if capacity > 0 {
                     edges.push(
-                        (i - 1, v.0,
-                            FlowEdge{capacity: capacity, flow: 0})
+                        (i, v.0, FlowEdge{capacity: capacity, flow: 0})
                     );
                 }
             }
-        }
             i += 1;
+        }
     }
     let vertexes = (0..num_vertexes).collect::<Vec<_>>();
-    create_residual_edges(&edges);
+    create_residual_edges(&mut edges);
     (0, num_vertexes - 1, Graph::new(&vertexes, &edges))
 }
 
@@ -479,7 +489,7 @@ mod tests {
     #[test]
     fn test_max_flow_0() {
         let vertex_list = vec![0, 1, 2, 3, 4, 5, 6];
-        let edge_list = vec![
+        let mut edge_list = vec![
             (0, 1, FlowEdge{flow: 0, capacity: 3}),
             (0, 2, FlowEdge{flow: 0, capacity: 1}),
             (1, 3, FlowEdge{flow: 0, capacity: 2}),
@@ -490,7 +500,7 @@ mod tests {
             (5, 6, FlowEdge{flow: 0, capacity: 1}),
             (6, 4, FlowEdge{flow: 0, capacity: 2})
         ];
-        create_residual_edges(&edge_list);
+        create_residual_edges(&mut edge_list);
         let mut g = Graph::new(&vertex_list, &edge_list);
         let flow_result = g.max_flow(0, 4, Search::Bfs);
         let total_flow = flow_result.0;
@@ -500,14 +510,14 @@ mod tests {
     #[test]
     fn test_max_flow_1() {
         let vertex_list = vec![0, 1, 2, 3];
-        let edge_list = vec![
+        let mut edge_list = vec![
             (0, 2, FlowEdge{flow: 0, capacity: 5}),
             (0, 3, FlowEdge{flow: 0, capacity: 5}),
             (2, 3, FlowEdge{flow: 0, capacity: 1}),
             (2, 1, FlowEdge{flow: 0, capacity: 5}),
             (3, 1, FlowEdge{flow: 0, capacity: 5}),
         ];
-        create_residual_edges(&edge_list);
+        create_residual_edges(&mut edge_list);
         let mut g = Graph::new(&vertex_list, &edge_list);
         let flow_result = g.max_flow(0, 1, Search::Bfs);
         let total_flow = flow_result.0;
@@ -517,7 +527,7 @@ mod tests {
     #[test]
     fn test_max_flow_2() {
         let vertex_list = vec![0, 1, 2, 3, 4, 5];
-        let edge_list = vec![
+        let mut edge_list = vec![
             (0, 1, FlowEdge{flow: 0, capacity: 11}),
             (0, 2, FlowEdge{flow: 0, capacity: 12}),
             (2, 1, FlowEdge{flow: 0, capacity: 1}),
@@ -527,7 +537,7 @@ mod tests {
             (4, 5, FlowEdge{flow: 0, capacity: 4}),
             (3, 5, FlowEdge{flow: 0, capacity: 19}),
         ];
-        create_residual_edges(&edge_list);
+        create_residual_edges(&mut edge_list);
         let mut g = Graph::new(&vertex_list, &edge_list);
         let flow_result = g.max_flow(0, 5, Search::Bfs);
         let total_flow = flow_result.0;
@@ -567,17 +577,13 @@ mod tests {
         test_flow_from_file("data/txt/test_1.txt", 10, FileType::Text, Search::Dfs);
         test_flow_from_file("data/txt/test_2.txt", 23, FileType::Text, Search::Bfs);
         test_flow_from_file("data/txt/test_2.txt", 23, FileType::Text, Search::Dfs);
-        test_flow_from_file("data/txt/test_3.txt", 935, FileType::Text, Search::Bfs);
-        test_flow_from_file("data/txt/test_3.txt", 935, FileType::Text, Search::Dfs);
-        test_flow_from_file("data/txt/test_4.txt", 2789, FileType::Text, Search::Bfs);
-        test_flow_from_file("data/txt/test_4.txt", 2789, FileType::Text, Search::Dfs);
-        test_flow_from_file("data/txt/test_5.txt", 2000000000, FileType::Text, Search::Bfs);
-        test_flow_from_file("data/txt/test_5.txt", 2000000000, FileType::Text, Search::Dfs);
-        test_flow_from_file("data/txt/test_6.txt", 23, FileType::Text, Search::Bfs);
-        test_flow_from_file("data/txt/test_6.txt", 23, FileType::Text, Search::Dfs);
-        test_flow_from_file("data/txt/test_7.txt", 256, FileType::Text, Search::Bfs);
-        test_flow_from_file("data/txt/test_7.txt", 256, FileType::Text, Search::Dfs);
-        test_flow_from_file("data/txt/test_8.txt", 20, FileType::Text, Search::Bfs);
-        test_flow_from_file("data/txt/test_8.txt", 20, FileType::Text, Search::Dfs);
+        test_flow_from_file("data/txt/test_3.txt", 2000000000, FileType::Text, Search::Bfs);
+        test_flow_from_file("data/txt/test_3.txt", 2000000000, FileType::Text, Search::Dfs);
+        test_flow_from_file("data/txt/test_4.txt", 23, FileType::Text, Search::Bfs);
+        test_flow_from_file("data/txt/test_4.txt", 23, FileType::Text, Search::Dfs);
+        test_flow_from_file("data/txt/test_5.txt", 256, FileType::Text, Search::Bfs);
+        test_flow_from_file("data/txt/test_5.txt", 256, FileType::Text, Search::Dfs);
+        test_flow_from_file("data/txt/test_6.txt", 20, FileType::Text, Search::Bfs);
+        test_flow_from_file("data/txt/test_6.txt", 20, FileType::Text, Search::Dfs);
     }
 }
