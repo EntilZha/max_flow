@@ -6,8 +6,14 @@ use graph::{flow_from_dicaps, flow_from_txt, FlowGraph, Search};
 
 fn main() {
     let args: Vec<String> = env::args().collect();
-    let file_name = &args[2];
-    let file_type = args[1].as_str();
+    let search_str = args[1].as_str();
+    let search = match search_str {
+        "bfs" => Some(Search::Bfs),
+        "dfs" => Some(Search::Dfs),
+        _ => None
+    }.expect("Expected 'bfs' or 'dfs'");
+    let file_type = args[2].as_str();
+    let file_name = &args[3];
     println!("Parsing input file");
     let parsed_opt = match file_type {
         "dicaps" => {
@@ -24,15 +30,15 @@ fn main() {
     let source = parsed.0;
     let sink = parsed.1;
     let mut g = parsed.2;
+    println!("Graph Statistics");
+    println!("Vertexes: {} Edges: {}", g.n_vertexes(), g.n_edges());
     println!("Computing maximum flow");
     let start_time = time::get_time();
-    let flow_result = g.max_flow(source, sink, Search::Bfs);
+    let flow_result = g.max_flow(source, sink, search);
     let end_time = time::get_time();
     let total_flow = flow_result.0;
-    //let flow_paths = flow_result.1;
     let diff = end_time - start_time;
 
-    //println!("Flow Paths: {:?}", flow_paths);
     println!("Total Flow: {}", total_flow);
     println!("Runtime: {}s", diff.num_milliseconds() as f64 / 1000.0);
 }
