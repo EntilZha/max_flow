@@ -58,8 +58,14 @@ impl<'a, E: Property, F> GraphIterator<'a, E, F>
     fn new(graph: &'a Graph<E>, source: VertexId, sink: VertexId, predicate: F, search: Search) -> GraphIterator<'a, E, F> {
         let mut queue = VecDeque::new();
         let mut stack = Vec::new();
-        queue.push_back(source);
-        stack.push(source);
+        match search {
+            Search::Bfs => {
+                queue.push_back(source);
+            },
+            Search::Dfs => {
+                stack.push(source);
+            }
+        }
         let mut distances = vec![u32::MAX; graph.n_vertexes()];
         let parents = vec![usize::MAX; graph.n_vertexes()];
         distances[source] = 0;
