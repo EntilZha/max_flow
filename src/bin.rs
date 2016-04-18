@@ -2,14 +2,14 @@ extern crate graph;
 extern crate time;
 
 use std::env;
-use graph::{flow_from_dicaps, flow_from_txt, FlowGraph, Search};
+use graph::{flow_from_dicaps, flow_from_txt, FlowGraph, DFS, BFS};
 
 fn main() {
     let args: Vec<String> = env::args().collect();
     let search_str = args[1].as_str();
     let search = match search_str {
-        "bfs" => Some(Search::Bfs),
-        "dfs" => Some(Search::Dfs),
+        "bfs" => Some(BFS),
+        "dfs" => Some(DFS),
         _ => None
     }.expect("Expected 'bfs' or 'dfs'");
     let file_type = args[2].as_str();
