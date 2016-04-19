@@ -30,9 +30,8 @@ fn main() {
     let sink = parsed.1;
     let mut g = parsed.2;
     let start_time = time::get_time();
-    let flow_result = g.max_flow(source, sink, search);
+    let total_flow = g.max_flow(source, sink, search);
     let end_time = time::get_time();
-    let total_flow = flow_result.0;
     let diff = end_time - start_time;
     println!("Algorithm:{}\tVertexes:{}\tEdges:{}\tFlow:{}\tRuntime:{}s",
         search_str, g.n_vertexes(), g.n_edges(), total_flow, diff.num_milliseconds() as f64 / 1000.0);

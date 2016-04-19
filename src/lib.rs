@@ -205,7 +205,7 @@ pub fn path_from_visited(source: VertexId,
 /// Special type of graph which has edges which can have flow and capacity.
 pub trait FlowGraph {
     fn augmenting_path(&self, source: VertexId, sink: VertexId, search: Search) -> Option<Vec<VertexId>>;
-    fn max_flow(&mut self, source: VertexId, sink: VertexId, search: Search) -> (i32, Vec<Vec<Edge>>);
+    fn max_flow(&mut self, source: VertexId, sink: VertexId, search: Search) -> i32;
 }
 
 impl<'a> FlowGraph for Graph<FlowEdge> {
@@ -226,8 +226,7 @@ impl<'a> FlowGraph for Graph<FlowEdge> {
     }
 
     /// Computes a vector of flow paths. Each path includes edges sequentially with the flow across that edge.
-    fn max_flow(&mut self, source: VertexId, sink: VertexId, search: Search) -> (i32, Vec<Vec<Edge>>) {
-        let mut flow_paths: Vec<Vec<Edge>> = Vec::new();
+    fn max_flow(&mut self, source: VertexId, sink: VertexId, search: Search) -> i32 {
         let mut total_flow = 0;
         loop {
             let path_option: Option<Vec<VertexId>> = self.augmenting_path(source, sink, search);
@@ -256,7 +255,6 @@ impl<'a> FlowGraph for Graph<FlowEdge> {
                         }
                         flow_path.push(Edge(edge.0, edge.2));
                     }
-                    flow_paths.push(flow_path);
                 },
                 None => {
                     for v in &self.neighbors[source] {
@@ -269,7 +267,7 @@ impl<'a> FlowGraph for Graph<FlowEdge> {
             }
         }
 
-        (total_flow, flow_paths)
+        total_flow
     }
 }
 
@@ -509,8 +507,7 @@ mod tests {
         ];
         create_residual_edges(&mut edge_list);
         let mut g = Graph::new(&vertex_list, &edge_list);
-        let flow_result = g.max_flow(0, 4, Search::Bfs);
-        let total_flow = flow_result.0;
+        let total_flow = g.max_flow(0, 4, Search::Bfs);
         assert_eq!(total_flow, 4);
     }
 
@@ -526,8 +523,7 @@ mod tests {
         ];
         create_residual_edges(&mut edge_list);
         let mut g = Graph::new(&vertex_list, &edge_list);
-        let flow_result = g.max_flow(0, 1, Search::Bfs);
-        let total_flow = flow_result.0;
+        let total_flow = g.max_flow(0, 1, Search::Bfs);
         assert_eq!(total_flow, 10);
     }
 
@@ -546,8 +542,7 @@ mod tests {
         ];
         create_residual_edges(&mut edge_list);
         let mut g = Graph::new(&vertex_list, &edge_list);
-        let flow_result = g.max_flow(0, 5, Search::Bfs);
-        let total_flow = flow_result.0;
+        let total_flow = g.max_flow(0, 5, Search::Bfs);
         assert_eq!(total_flow, 23);
     }
 
@@ -566,8 +561,7 @@ mod tests {
         let sink = parsed.1;
         let mut g = parsed.2;
         println!("{:?}", g);
-        let flow_result = g.max_flow(source, sink, search);
-        let total_flow = flow_result.0;
+        let total_flow = g.max_flow(source, sink, search);
         assert_eq!(total_flow, flow);
         println!("");
     }
