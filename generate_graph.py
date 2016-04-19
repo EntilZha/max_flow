@@ -8,7 +8,7 @@ Edge = namedtuple('Edge', 'u v capacity')
 @click.command()
 @click.argument('filename')
 @click.option('--flow', default=100)
-@click.option('--layer-size', default=1000)
+@click.option('--layer-size', default=500)
 @click.option('--n-layers', default=1000)
 @click.option('--connect-ratio', default=1)
 def cli(filename, flow, layer_size, n_layers, connect_ratio):
